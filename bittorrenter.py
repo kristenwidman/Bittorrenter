@@ -4,66 +4,12 @@
 #Oct 8, 2012
 
 import sys
+import socket
 import bencode
 import hashlib
-import random
-import string
 import requests
 import urllib
-
-local_port = 59696
-peer_id_start = '-KB1000-'
-
-def length_of_file(metainfo):
-    '''Input: metainfo file (.torrent file)
-       Output: total length of the file(s) to be transferred
-       Determines the total length of files to be transferred using the length key 
-	in the files dictionary within the info dictionary.  Adds up lengths for all files 
-        to get total length.
-    '''
-    info = metainfo['info'] 
-    length = 0
-    if 'length' in info:
-	length = info['length']            #single file, return overall length
-    else:
-	files = info['files']              #files is a list of dictionaries
-	for fileDict in files:
-	    length += fileDict['length']
-	return length
-
-def generate_peer_id():
-    '''Input: none
-       Output: a 20 byte string used as a unique ID for this client instance.
-       The structure of the peer_id here is taken from the peer_id_start variable
-       plus random characters (letters and digits) to make up the rest of the 20 bytes.
-       The peer_id_start follows the convention for peer_id outlined in the wiki.theory.
-       ort/BitTorrentSpecification doc.
-    '''
-    N = 20 - len(peer_id_start) 
-    end = ''.join(random.choice(string.ascii_lowercase + string.digits) for x in range(N))
-    peer_id = peer_id_start + end
-    return peer_id
-
-def get_parameters(metainfo):
-    '''Input: metainfo file (.torrent file)
-       Output: a dictionary containing all parameters for our http request to the tracker
-       The request to the tracker for peer info has several needed and optional parameters.
-       This method calculates the parameters and sets up the dictionary containing them.
-    '''
-#note to self: consider making this info a separate object class
-    info = metainfo['info']                
-    sha_info=hashlib.sha1(bencode.bencode(info))  
-    info_hash = sha_info.digest()
-    peer_id=generate_peer_id()
-    uploaded=0 #update later
-    downloaded=0 # update later
-    left=length_of_file(metainfo) #udpate later to calculate as changes
-    compact=1
-    no_peer_id=0
-    event="started"
-    param_dict = {'info_hash':info_hash, 'peer_id':peer_id, 'port':local_port, 'uploaded':uploaded, 
-	    'downloaded':downloaded, 'left':left, 'compact':compact, 'no_peer_id':no_peer_id, 'event':event}
-    return param_dict
+from TorrentClass import Torrent
 
 def parse_response_from_tracker(r):
     '''Input: http response from our request to the tracker
@@ -73,11 +19,12 @@ def parse_response_from_tracker(r):
        to a network(?) model(x.x.x.x:y). From the spec: 'First 4 bytes are the IP address and
        last 2 bytes are the port number'
     '''
-    #print r.url
-    #print r.text
-    response = bencode.bdecode(r.text)
-    #print response
+    response = bencode.bdecode(r.content)
     peers = response['peers']
+    #print peers
+    #print [str(ord(x))+x for x in peers]
+
+
     i=1
     peer_address = ''
     peer_list = []
@@ -95,7 +42,6 @@ def parse_response_from_tracker(r):
 	else:
 	    peer_address += str(ord(c))+'.'
 	i += 1
-    print str(peer_list)
     return peer_list
 
 def get_peers(metainfo):
@@ -104,10 +50,48 @@ def get_peers(metainfo):
        Calls methods to send an http request to the tracker, parse the returned
        result message and return a list of peer_ids
     '''
-    announce_url = metainfo['announce']
-    parameter_list = get_parameters(metainfo)
-    r = requests.get(announce_url, params=parameter_list)
+    torrentObj = Torrent(metainfo)
+    r = requests.get(torrentObj.announce_url, params=torrentObj.param_dict)
+    #print 'r.content: '+r.content
+    #print 'r.text: '+r.text
     peers = parse_response_from_tracker(r)
+    return peers, torrentObj
+
+def handshake(peer,torrentObj):
+    '''Input: ip:port of a peer with the torrent files of interest
+       Output: <fill this in>
+       <fill this in>
+    '''
+    pstrlen = chr(19)
+    pstr = "BitTorrent protocol"
+    reserved = '\x00\x00\x00\x00\x00\x00\x00\x00' 
+    info_hash = torrentObj.info_hash 
+    peer_id = torrentObj.peer_id
+    handshake = pstrlen+pstr+reserved+info_hash+peer_id
+    print repr(handshake)
+    #s_listen = socket.socket()
+    hostname = socket.gethostname()
+    #s_listen.bind((hostname, torrentObj.port),)
+    #s_listen.listen(10)   # read about buffer size 
+    s_send = socket.socket()
+    hostandport = peer.split(':')
+    #print hostandport[0]
+    #print hostandport[1]
+    s_send.connect((hostandport[0],int(hostandport[1])),)
+    s_send.sendall(handshake)
+    print "sent handshake to " + hostandport[0]+':'+hostandport[1]    
+    response = s_send.recv(2000)
+    print repr(response)
+    response2 = s_send.recv(2000)
+    print repr(response2)
+    for i in range(10):
+	r3 = s_send.recv(1000)
+	print repr(response3)
+    #s_listen.accept()   # read about 'accept' - does s2 need to be set up first? or will it assign to random port?
+    #print 'a'
+    #response = s_listen.recv(200)
+    #print response
+    #setup_socket_listening(torrentObj.port)
 
 def main(torrentFile):
     f = open(torrentFile, 'r')
@@ -115,7 +99,11 @@ def main(torrentFile):
     f.close()
     #f2 = open('/Users/kristenwidman/Documents/Programs/Bittorrenter/metainfo.txt','w')
     #f2.write(str(metainfo))
-    peers = get_peers(metainfo)
+    peers, torrentObj = get_peers(metainfo)
+    #print peers
+    peer = peers[3]
+    #print peer
+    handshake(peer, torrentObj)
     #f2.close()
 
 if __name__ == "__main__":
