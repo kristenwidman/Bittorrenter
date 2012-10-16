@@ -26,29 +26,29 @@ def bytes_to_number(bytestring):  #assumed to be 4 bytes long
 
 def determine_msg_type(response):
     if len(response) < 4:
-        return None,response
+        return None, response
     length = bytes_to_number(response[0:4]) + 4
     if len(response) < length:
-        return None,response
+        return None, response
     elif response[0:4] == '\x00\x00\x00\x00':
         message_obj = Message('keep_alive')
     else:
         bytestring = response[:length]
         result = {
-          '\x00': Message('choke'),
-          '\x01': Message('unchoke'),
-          '\x02': Message('interested'),
-          '\x03': Message('not interested'),
-          '\x04': Have(bytestring),
-          '\x05': Bitfield(bytestring),
-          '\x06': Request(bytestring),
-          '\x07': Piece(bytestring),
-          '\x08': Cancel(bytestring),
-          '\x09': Port(bytestring),
-        }[response[4]]
+          '\x00': lambda: Message('choke'),
+          '\x01': lambda: Message('unchoke'),
+          '\x02': lambda: Message('interested'),
+          '\x03': lambda: Message('not interested'),
+          '\x04': lambda: Have(response=bytestring),
+          '\x05': lambda: Bitfield(response=bytestring),
+          '\x06': lambda: Request(response=bytestring),
+          '\x07': lambda: Piece(response=bytestring),
+          '\x08': lambda: Cancel(response=bytestring),
+          '\x09': lambda: Port(response=bytestring),
+        }[response[4]]()
         message_obj = result
     response = response[length:]
-    return message_obj,response
+    return message_obj, response
 
 class Handshake(object):
     """Represents a handshake object"""
@@ -77,63 +77,80 @@ class Handshake(object):
         return 49+ord(self.pstrlen)
 
 class Message(object):
-    def __init__(self,*args):
-        if len(args) == 1: self.__setup1(*args)
-        elif len(args) > 1: self.__setup2(*args)
+    """This is for everything but Handshake"""
+    protocol_args = []
+    protocol_extended = None
 
-    def __setup1(self,payload):
-        self.length = payload[0:4]
-        if len(payload) > 4:
-            self.msg_id = payload[4]
-    
-    def __setup2(self,length,msg_id):
-        self.length = length
-        self.msg_id = msg_id
+    def __init__(self,**kwargs):
+        if 'response' in kwargs:
+            self.__setup_from_bytestring(kwargs['response'])
+        elif set(self.protocol_args + ([self.protocol_extended] if self.protocol_extended else [])) == set(kwargs.keys()):
+            self.__setup_from_args(kwargs)
+        else:
+            print 'asdf'
+            print 'stuff from message class', set(self.protocol_args + [self.protocol_extended] if self.protocol_extended else [])
+            print 'kwargs', set(kwargs.keys())
+            raise Exception("Bad init values")
+
+    def __setup_from_bytestring(self, bytestring):
+        self.length = bytestring[0:4]
+        if len(bytestring) > 4:
+            self.msg_id = bytestring[4]
+        else:
+            self.msg_id = ''
+        payload = bytestring[5:]
+        for i, arg_name in enumerate(self.protocol_args):
+            setattr(self, arg_name, payload[:4])
+            payload = payload[4:]
+        if self.protocol_extended:
+            setattr(self, self.protocol_extened, payload)
+
+    def __setup_from_args(self, kwargs):
+        for arg_name in self.protocol_args:
+            setattr(self, arg_name, kwargs[arg_name])
+        if self.protocol_extended:
+            setattr(self, self.protocol_extended, kwargs[self.protocol_extended])
+        if isinstance(self, KeepAlive):
+            self.length = number_to_bytes(sum([len(x) for x in kwargs.values()]))
+        else:
+            self.length = number_to_bytes(sum([len(x) for x in kwargs.values()]) + 1)
 
     def __repr__(self):
-        return self.length + self.msg_id
+        s = ''
+        s += self.length
+        s += self.msg_id
+        for i, arg_name in enumerate(self.protocol_args):
+            getattr(self, arg_name)
+        if self.protocol_extended:
+            getattr(self, self.protocol_extened)
+        return s
 
     def __len__(self):
         return bytes_to_number(self.length) + 4
 
 class Have(Message):
-    def __init__(self,**kwargs):
-        self.length = '\x00\x00\x00\x05'  #or '5'
-        self.msg_id = '\x04'   #or '4'
-        if index in kwargs:
-            self.byte_index = number_to_bytes(index) 
-        elif response in kwargs:
-            self.byte_index = response[5:9]
-
-    def __repr__(self):
-        return repr(self.length + self.msg_id + self.byte_index)
-    
-    def __len__(self):
-        return bytes_to_number(self.length)+4
-
-    @property
-    def index(self):
-        return bytes_to_number(self.byte_index)
+    protocol_args = ['index']
+    protocol_extended = None
+    msg_id = '\x00\x00\x00\x04'
 
 class Bitfield(Message):
-    def __init__(self, **kwargs):
-        self.msg_id = '\x05'
-        if bitfield in kwargs:
-            self.bitfield = bitfield  #assumes sending bitfield as byte string
-            self.length = number_to_bytes(len(self.bitfield + 1))
-        elif response in kwargs:
-            self.length = response[0:4]
-            self.bitfield = response[5:]
-        #need to determine length of response and deal with bitfield len or always pass in parameters that create exactly one object, no extra chars
+    protocol_extended = 'bitfield'
+    msg_id = 5
 
-    def __repr__(self):
-        return repr(self.length + self.msg_id + self.bitfield) 
-
-    def __len__(self):
-        return bytes_to_number(self.length)+4
+class KeepAlive(Message):
+    msg_id = ''
 
 class Request(Message):
-    def __init__(self,*args):
+    def __init__(self,**kwargs):
+        self.msg_id = '\x06'
+        self.args = ['index', 'begin', 'piece_length']
+        if set(kwargs.keys()) == set(self.args):
+
+            pass
+        elif 'response' in kwargs:
+            self.length = kwargs['response'][0:4]
+            self.bitfield = kwargs['response'][5:]
+
         if len(args) == 1: self.__setup1(*args)
         elif len(args) == 5: self.__setup2(*args)
 
@@ -209,8 +226,13 @@ class Port(Message):
         return repr(self.length + self.msg_id + self.port)
 
 if __name__ == '__main__':
-    print 257 == bytes_to_number('\x00\x00\x01\x01')
-    print determine_msg_type('\x00\x00\x00\x00')
-
-
+#    print 257 == bytes_to_number('\x00\x00\x01\x01')
+#    print determine_msg_type('\x00\x00\x00\x00trainling')
+#    print determine_msg_type('\x00\x00\x00\x01\x01trainling')
+#    print determine_msg_type('\x00\x00\x00\x01\x02trailing')
+#    print determine_msg_type('\x00\x00\x00\x01\x03trailing')
+    print 'have', repr(determine_msg_type('\x00\x00\x00\x05\x04\x00\x00\x00\x01trailing'))
+    print 'have from args:', repr(Have(index='\x00\x00\x00\x03'))
+#    print 'bitfield', determine_msg_type('\x00\x00\x00\x03\x05\xff\x00trailing')
+#    print 'request', determine_msg_type('\x00\x00\x00\x0d\x06\x00\x00\x00\x01\x00\x00\x00\x02\x00\x00\x00\x03trailing')
 
