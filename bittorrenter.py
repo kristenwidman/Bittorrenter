@@ -52,36 +52,6 @@ def cancel(index,begin,length):
 def port(listen_port):
     return '\x00\x00\x00\x03\x09'+str(listen_port)  #do these terms need formatting?
 '''
-
-def determine_msg_type(response):
-    response_type = ''
-    if response == '\x00\x00\x00\x00':
-	response_type = 'keep alive'
-    else:
-	if response[0:4] == '\x00\x00\x00\x01':
-	    result = {
-	      '\x00': 'choke',
-	      '\x01': 'unchoke',
-	      '\x02': 'interested',
-	      '\x03': 'not interested'
-		  }.get(response[4], 'NOT FOUND')
-	    response_type = result
-	elif response[0:5] == '\x00\x00\x00\x05\x04':
-	    response_type = 'have'
-	elif response[0:5] == '\x00\x00\x01\x03\x06':
-	    response_type = 'request'
-	elif response[0:5] == '\x00\x00\x01\x03\x08':
-	    response_type = 'cancel'
-	elif response[0:5] == '\x00\x00\x00\x03\x09':
-	    response_type = 'port'
-	elif response[4] == '\x07':
-	    response_type = 'piece'
-	elif response[4] == '\x05':
-	    response_type = 'bitfield'
-	else:
-	    response_type = 'NOT FOUND'
-    return response_type
-	
 def deal_with_incoming_message(msg):
     msg_type = determine_msg_type(msg)
     if msg_type == "bitfield":

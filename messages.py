@@ -4,16 +4,16 @@
 #Oct 15, 2012
 
 
-def number_to_bytes(blength):  #determine_length(blength):
-    if blength < 255:
-	length = '\x00\x00\x00' + chr(blength)
-    elif blength < 256**2:
-	length = '\x00\x00' + chr((blength)/256) + chr((blength) % 256)
-    elif blength < 256**3:
-	length = ('\x00'+ chr((blength)/256**2) + chr(((blength) % 256**2) / 256) +
-		    chr(((blength) % 256**2) % 256))
+def number_to_bytes(number):  #returns a number 4 bytes long
+    if number < 255:
+	length = '\x00\x00\x00' + chr(number)
+    elif number < 256**2:
+	length = '\x00\x00' + chr((number)/256) + chr((number) % 256)
+    elif number < 256**3:
+	length = ('\x00'+ chr((number)/256**2) + chr(((number) % 256**2) / 256) +
+		    chr(((number) % 256**2) % 256))
     else:
-	length = (chr((blength)/256**3) + chr(((blength)%256**3)/256**2) + chr((((blength)%256**3)%256**2)/256) + chr((((blength)%256**3)%256**2)%256))
+	length = (chr((number)/256**3) + chr(((number)%256**3)/256**2) + chr((((number)%256**3)%256**2)/256) + chr((((number)%256**3)%256**2)%256))
     return length
 
 def bytes_to_number(bytestring):  #assumed to be 4 bytes long
@@ -23,6 +23,33 @@ def bytes_to_number(bytestring):  #assumed to be 4 bytes long
 	number += ord(byte) * 256**i
 	i -= 1
 
+def determine_msg_type(response):
+    if len(response) < 4:
+	return None,response
+    length = bytes_to_number(response[0:4]) + 4    
+    response_type = ''
+    if len(response) < length:
+	    return None,response
+    elif response[0:4] == '\x00\x00\x00\x00':
+	message_obj = Message('keep_alive') 
+    else:
+	bytestring = response([:length])
+	result = {
+	  '\x00': Message('choke'),
+	  '\x01': Message('unchoke'),
+	  '\x02': Message('interested'),
+	  '\x03': Message('not interested')
+	  '\x04': Have(bytestring)
+	  '\x05': Bitfield(bytestring)
+	  '\x06': Request(bytestring)
+	  '\x07': Piece(bytestring)
+	  '\x08': Cancel(bytestring)
+	  '\x09': Port(bytestring)
+	      }[response[4]]
+	message_obj = result
+    response = response[length:]
+    return message_obj,response
+	
 class Handshake(object):
     def __init__(self,*args):
 	if len(args) == 1: self.__setup1(*args)
@@ -71,47 +98,38 @@ class Message(object):
 class Have(Message):
     def __init__(self,**kwargs):
 	self.length = '\x00\x00\x00\x05'  #or '5'
-	self.index = '\x00\x00\x00\x04'   #or '4'
+	self.msg_id = '\x04'   #or '4'
 	if index in kwargs:
 	    self.byte_index = number_to_bytes(index) 
 	elif response in kwargs:
 	    self.byte_index = response[5:9]
+
     def __repr__(self):
 	return repr(self.length + self.msg_id + self.byte_index)
+    
+    def __len__(self):
+	return bytes_to_number(self.length)+4
 
     @property
     def index(self):
 	return bytes_to_number(self.byte_index)
 
-'''
-	if len(args) == 1: self.__setup1(*args)
-	elif len(args) == 3: self.__setup2(*args)
-    
-    def __setup1(self,payload):
-	Message.__init__(self,payload)
-	self.byte_index = payload[5:9]   #maybe this should not go to end -- should it only go to length of payload in case of overlappying messages?
-
-    def __setup2(self, length, msg_id, byte_index):
-	Message.__init__(self,length,msg_id)
-	self.byte_index = byte_index
-'''
-
 class Bitfield(Message):
-    def __init__(self, *args):
-	if len(args) == 1: self.__setup1(*args)
-	elif len(args) == 3: self.__setup2(*args)
-	
-    def __setup1(self, payload):
-	Message.__init__(self,payload)
-	self.bitfield = payload[5:]
-    
-    def __setup2(self, length, msg_id, bitfield):
-	Message.__init__(self,length,msg_id)
-	self.bitfield = bitfield
+    def __init__(self, **kwargs):
+	self.msg_id = '\x05'
+	if bitfield in kwargs:
+	    self.bitfield = bitfield  #assumes sending bitfield as byte string
+	    self.length = number_to_bytes(len(self.bitfield + 1))
+	elif response in kwargs:
+	    self.length = response[0:4]
+	    self.bitfield = response[5:]
+    #need to determine length of response and deal with bitfield len or always pass in parameters that create exactly one object, no extra chars
 
     def __repr__(self):
 	return repr(self.length + self.msg_id + self.bitfield) 
 
+    def __len__(self):
+	return bytes_to_number(self.length)+4
 
 class Request(Message):
     def __init__(self,*args):
