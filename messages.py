@@ -20,33 +20,33 @@ def bytes_to_number(bytestring):  #assumed to be 4 bytes long
     number = 0
     i = 3
     for byte in bytestring:
-    number += ord(byte) * 256**i
-    i -= 1
+        number += ord(byte) * 256**i
+        i -= 1
+    return number
 
 def determine_msg_type(response):
     if len(response) < 4:
     return None,response
     length = bytes_to_number(response[0:4]) + 4    
-    response_type = ''
     if len(response) < length:
         return None,response
     elif response[0:4] == '\x00\x00\x00\x00':
     message_obj = Message('keep_alive') 
     else:
-    bytestring = response([:length])
-    result = {
-      '\x00': Message('choke'),
-      '\x01': Message('unchoke'),
-      '\x02': Message('interested'),
-      '\x03': Message('not interested')
-      '\x04': Have(bytestring)
-      '\x05': Bitfield(bytestring)
-      '\x06': Request(bytestring)
-      '\x07': Piece(bytestring)
-      '\x08': Cancel(bytestring)
-      '\x09': Port(bytestring)
-          }[response[4]]
-    message_obj = result
+        bytestring = response[:length]
+        result = {
+          '\x00': Message('choke'),
+          '\x01': Message('unchoke'),
+          '\x02': Message('interested'),
+          '\x03': Message('not interested'),
+          '\x04': Have(bytestring),
+          '\x05': Bitfield(bytestring),
+          '\x06': Request(bytestring),
+          '\x07': Piece(bytestring),
+          '\x08': Cancel(bytestring),
+          '\x09': Port(bytestring),
+        }[response[4]]
+        message_obj = result
     response = response[length:]
     return message_obj,response
     
@@ -207,4 +207,10 @@ class Port(Message):
 
     def __repr__(self):
     return repr(self.length + self.msg_id + self.port)
+
+if __name__ == '__main__':
+    print 257 == bytes_to_number('\x00\x00\x01\x01')
+    print determine_msg_type('\x00\x00\x00\x00')
+
+
 
