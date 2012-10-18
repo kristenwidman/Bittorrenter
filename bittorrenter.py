@@ -10,8 +10,40 @@ import hashlib
 import binascii
 import requests
 import urllib
-from TorrentClass import Torrent
+from torrent import Torrent
 from messages import *
+from protocol import *
+from twisted.internet.protocol import Protocol, ClientFactory
+from twisted.internet import reactor
+from sys import stdout
+
+class BittorrentProtocol(Protocol):
+    def dataReceived(self,data):
+        stdout.write(data)
+        #parse data
+        #if certain type of data, do something
+        
+
+class BittorrentFactory(ClientFactory):
+    def startedConnecting(self,connector):
+        print 'Started to connect.'
+
+    def buildProtocol(self,addr):
+        print 'Connected.'
+        return BittorrentProtocol()
+        #handshake
+
+    def clientConnectionLost(self,connector,reason):
+        print 'Lost connection. Reason: ', reason
+        #reconnect?
+        
+    def clientConnectionFailed(self,connector,reason):
+        print 'Connection failed. Reason: ', reason
+
+reactor.connectTCP('www.google.com',80,EchoClientFactory())
+reactor.run()
+
+
 
 def deal_with_incoming_message(msg):
     msg_type = determine_msg_type(msg)
@@ -88,11 +120,6 @@ def decode_handshake(response, torrentObj):
     #print 'peer_id: '+repr(handshake.peer_id)
     
     other = response[68:]
-    print 'other: ' + repr(other)
-    message_type, response = determine_msg_type(other)
-    print "other message type: " + repr(message_type.__class__.__name__) 
-    print "any extra after other: "+ repr(response)
-    #print 'type: ' + str(determine_msg_type(other))
     expected_peer_id = torrentObj.peer_id
     expected_info_hash = torrentObj.info_hash
     if (expected_info_hash != handshake.info_hash):
@@ -100,7 +127,7 @@ def decode_handshake(response, torrentObj):
 			repr(expected_info_hash) + '. Info hash found: ' + repr(handshake.info_hash))
 #protocol indicates that we should check the peer_id too and that we should have gotten
 #this from the tracker.
-    return
+    return other
 
 def handshake(peer,torrentObj):
     '''Input: ip:port of a peer with the torrent files of interest
@@ -125,8 +152,15 @@ def handshake(peer,torrentObj):
     print 'response: '+repr(response)
     response2 = s_send.recv(2000)
     print 'response 2: '+repr(response2)
-    decode_handshake(response+response2, torrentObj)
-    
+    return response+response2
+
+def decode_messages_in_loop(response):
+    print 'other: ' + repr(response)
+    message, response = determine_msg_type(response)
+    print "other message type: " + repr(message.__class__.__name__) 
+    print "any extra after other: "+ repr(response)
+    print "message: " + repr(message) 
+
 def main(torrentFile):
     f = open(torrentFile, 'r')
     metainfo = bencode.bdecode(f.read())
@@ -136,7 +170,9 @@ def main(torrentFile):
     print peers
     peer = peers[3]
     #print peer
-    handshake(peer, torrentObj)
+    response = handshake(peer, torrentObj)
+    other = decode_handshake(response, torrentObj)
+    decode_messages_in_loop(other)  #also need to add further responses received from peer
 
 if __name__ == "__main__":
     main(sys.argv[1])

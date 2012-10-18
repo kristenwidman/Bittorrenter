@@ -24,7 +24,7 @@ def bytes_to_number(bytestring):  #assumed to be 4 bytes long
         i -= 1
     return number
 
-def determine_msg_type(response):
+def parse_message_from_response(response):
     if len(response) < 4:  #don't have full message
         return None, response
     length = bytes_to_number(response[0:4]) + 4  #length indicated by the first 4 bytes + 4 for those first 4 bytes
