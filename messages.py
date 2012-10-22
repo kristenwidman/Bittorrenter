@@ -126,9 +126,9 @@ class Message(object):
         s += self.msg_length
         s += self.msg_id
         for arg_name in self.protocol_args:
-            getattr(self, arg_name)
+            s += getattr(self, arg_name)
         if self.protocol_extended:
-            getattr(self, self.protocol_extended)
+            s += getattr(self, self.protocol_extended)
         return repr(s)
 
     def __len__(self):

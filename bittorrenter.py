@@ -12,26 +12,86 @@ import requests
 import urllib
 from torrent import Torrent
 from messages import *
-from protocol import *
 from twisted.internet.protocol import Protocol, ClientFactory
 from twisted.internet import reactor
 from sys import stdout
 
 class BittorrentProtocol(Protocol):
+    def __init__(self,torrent_info):
+        #super(BittorrentProtocol, self).__init__()
+        #Protocol.__init__(self)
+        self.torrent_info = torrent_info
+        self.message_buffer = ''
+
+    def connectionMade(self):
+        handshake_msg = repr(handshake(self.torrent_info))
+        self.transport.write(handshake_msg)          
+        #self.transport.loseConnection()
+
     def dataReceived(self,data):
-        stdout.write(data)
-        #parse data
-        #if certain type of data, do something
+        if self.message_buffer:
+            self.message_buffer += data
+            print "message buffer had info. it is now: " + repr(self.message_buffer)
+        else:
+            self.message_buffer = data
+            print "message buffer was empty.  it is now: " + repr(self.message_buffer)
+        #have global variable buffer for data received and add to it each time we receive data?
+        #then parse until buffer is empty or is not as long as its intended length in first 4 bytes
+        if self.message_buffer[1:20].lower() == "BitTorrent Protocol".lower():
+            print "handshake received"
+            self.message_buffer = decode_handshake(self.message_buffer, self.torrent_info)
+            self.transport.write(repr(Interested()))
+            #perhaps have error handling for if handshake is cut short
+        if len(self.message_buffer) >= 4:
+            message_length = bytes_to_number(self.message_buffer[0:4]) + 4
+            print "length of message expected: " + repr(message_length)
+            print "length of message in buffer: " + repr(len(self.message_buffer))
+            if len(self.message_buffer) < message_length:    #debugging line
+                print "message shorter than expected"        #debugging line
+            while len(self.message_buffer) >= message_length:
+                #self.message_buffer = parse_messages(self.message_buffer)
+                #print "message_buffer is now: " + repr(self.message_buffer) 
+                message_obj, message = parse_message_from_response(self.message_buffer)
+                #print type(message_obj)
+                if isinstance(message_obj, Choke):
+                    print 'choke' 
+                    #set some field to false; don't request pieced
+                if isinstance(message_obj, Unchoke):
+                    print 'unchoke'  # set some field to be able to request pieces
+                if isinstance(message_obj, Interested):
+                    print 'interested' 
+                if isinstance(message_obj, NotInterested):
+                    print 'not interested'
+                if isinstance(message_obj, Have):
+                    print 'have!'
+                if isinstance(message_obj, Bitfield):
+                    print 'bitfield!'    #what to do with bitfield and/or haves?  create a representaion of what the peer has?
+                if isinstance(message_obj, Request):
+                    print 'request'
+                if isinstance(message_obj, Piece):
+                    print 'piece'    # do something with this
+                if isinstance(message_obj, Cancel):
+                    print 'cancel'
+                if isinstance(message_obj, Port):
+                    print 'port'
+                    #parse port and switch connection to that port
+                #return message
         
+        #parse bitfield
+        #send request?
 
 class BittorrentFactory(ClientFactory):
+    def __init__(self,torrent_info):
+        #super(BittorrentFactory, self).__init__()
+        #ClientFactory.__init__(self)
+        self.torrent_info = torrent_info
+
     def startedConnecting(self,connector):
         print 'Started to connect.'
 
     def buildProtocol(self,addr):
         print 'Connected.'
-        return BittorrentProtocol()
-        #handshake
+        return BittorrentProtocol(self.torrent_info)
 
     def clientConnectionLost(self,connector,reason):
         print 'Lost connection. Reason: ', reason
@@ -40,30 +100,32 @@ class BittorrentFactory(ClientFactory):
     def clientConnectionFailed(self,connector,reason):
         print 'Connection failed. Reason: ', reason
 
-reactor.connectTCP('www.google.com',80,EchoClientFactory())
-reactor.run()
-
-
-
-def deal_with_incoming_message(msg):
-    msg_type = determine_msg_type(msg)
-    if msg_type == "bitfield":
-	bitf_obj = bitfield(msg)
-	#do something with this abject
-    elif msg_type == "piece":
-	piece_obj = piece(msg)
-	#store this piece info somewhere and gradually build up obj
-
-
-    elif msg_type == "port":
-	port_obj = port(msg)
-	#change the port we are sending to; implement when dealing with incoming requests 
-    elif msg_type == "request":
-	request_obj = request(msg)
-	#do something with this when dealing with incoming requests
-    elif msg_type == "cancel":
-	cancel_obj = cancel(msg)
-	#do something with this when dealing with incoming requests
+def parse_messages(message):    #pass in peer file representation and my file representation; need a way to send port back 
+    message_obj, message = parse_message_from_response(message)
+    #print type(message_obj)
+    if isinstance(message_obj, Choke):
+        print 'choke' 
+        #set some field to false; don't request pieced
+    if isinstance(message_obj, Unchoke):
+        print 'unchoke'  # set some field to be able to request pieces
+    if isinstance(message_obj, Interested):
+        print 'interested' 
+    if isinstance(message_obj, NotInterested):
+        print 'not interested'
+    if isinstance(message_obj, Have):
+        print 'have!'
+    if isinstance(message_obj, Bitfield):
+        print 'bitfield!'    #what to do with bitfield and/or haves?  create a representaion of what the peer has?
+    if isinstance(message_obj, Request):
+        print 'request'
+    if isinstance(message_obj, Piece):
+        print 'piece'    # do something with this
+    if isinstance(message_obj, Cancel):
+        print 'cancel'
+    if isinstance(message_obj, Port):
+        print 'port'
+        #parse port and switch connection to that port
+    return message
 
 def parse_response_from_tracker(r):
     '''Input: http response from our request to the tracker
@@ -75,8 +137,6 @@ def parse_response_from_tracker(r):
     '''
     response = bencode.bdecode(r.content)
     peers = response['peers']
-    #print peers
-    #print [str(ord(x))+x for x in peers]
     i=1
     peer_address = ''
     peer_list = []
@@ -104,32 +164,20 @@ def get_peers(metainfo):
     '''
     torrentObj = Torrent(metainfo)
     r = requests.get(torrentObj.announce_url, params=torrentObj.param_dict)
-    #print 'r.content: '+r.content
-    #print 'r.text: '+r.text
     peers = parse_response_from_tracker(r)
     return peers, torrentObj
 
 def decode_handshake(response, torrentObj):
     handshake = Handshake(response)
-    print 'handshake received: ' + repr(repr(handshake))
-    #print 'protocol name length: ' + ord(handshake.pstrlen)
-    #print 'protocol: ' + handshake.pstr
-    #print 'reserved: ' + repr(handshake.reserved)
-    #print 'reserved: ' + "".join("%02x" % ord(c) for c in handshake.reserved)
-    #print 'info_hash from handshake: '+ repr(handshake.info_hash)
-    #print 'peer_id: '+repr(handshake.peer_id)
-    
     other = response[68:]
     expected_peer_id = torrentObj.peer_id
     expected_info_hash = torrentObj.info_hash
     if (expected_info_hash != handshake.info_hash):
 	raise Exception('info_hash does not match expected.  Info hash expected: ' +  #instead of throwing exception, we should send a cancel message
 			repr(expected_info_hash) + '. Info hash found: ' + repr(handshake.info_hash))
-#protocol indicates that we should check the peer_id too and that we should have gotten
-#this from the tracker.
     return other
 
-def handshake(peer,torrentObj):
+def handshake(torrentObj):
     '''Input: ip:port of a peer with the torrent files of interest
        Output: <fill this in>
        <fill this in>
@@ -137,6 +185,7 @@ def handshake(peer,torrentObj):
     info_hash = torrentObj.info_hash
     peer_id = torrentObj.peer_id
     handshake = Handshake(info_hash, peer_id)
+    '''
     pstr = 'BitTorrent protocol'
     pstrlen = chr(19)
     reserved = '\x00\x00\x00\x00\x00\x00\x00\x00'
@@ -153,6 +202,8 @@ def handshake(peer,torrentObj):
     response2 = s_send.recv(2000)
     print 'response 2: '+repr(response2)
     return response+response2
+    '''
+    return handshake
 
 def decode_messages_in_loop(response):
     print 'other: ' + repr(response)
@@ -161,18 +212,23 @@ def decode_messages_in_loop(response):
     print "any extra after other: "+ repr(response)
     print "message: " + repr(message) 
 
+
 def main(torrentFile):
     f = open(torrentFile, 'r')
     metainfo = bencode.bdecode(f.read())
     f.close()
-    peers, torrentObj = get_peers(metainfo)
+    peers, torrent_obj = get_peers(metainfo)
 
     print peers
-    peer = peers[3]
+    peer = peers[2]
     #print peer
-    response = handshake(peer, torrentObj)
-    other = decode_handshake(response, torrentObj)
-    decode_messages_in_loop(other)  #also need to add further responses received from peer
+    hostandport = peer.split(':')
+    #other = decode_handshake(response, torrentObj)
+    #decode_messages_in_loop(other)  #also need to add further responses received from peer
+    bittorrent_factory = BittorrentFactory(torrent_obj)
+
+    reactor.connectTCP(hostandport[0], int(hostandport[1]),bittorrent_factory)
+    reactor.run()
 
 if __name__ == "__main__":
     main(sys.argv[1])
