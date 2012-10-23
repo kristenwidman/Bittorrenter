@@ -20,7 +20,10 @@ def bytes_to_number(bytestring):  #assumed to be 4 bytes long
     number = 0
     i = 3
     for byte in bytestring:
-        number += ord(byte) * 256**i
+        try:
+            number += ord(byte) * 256**i
+        except(TypeError):
+            number += byte * 256**i
         i -= 1
     return number
 
@@ -35,16 +38,16 @@ def parse_message_from_response(response):
         message_obj = KeepAlive(response=bytestring)
     else:
         result = {
-          '\x00': lambda: Choke(response=bytestring),
-          '\x01': lambda: Unchoke(response=bytestring),
-          '\x02': lambda: Interested(response=bytestring),
-          '\x03': lambda: NotInterested(response=bytestring),
-          '\x04': lambda: Have(response=bytestring),
-          '\x05': lambda: Bitfield(response=bytestring),
-          '\x06': lambda: Request(response=bytestring),
-          '\x07': lambda: Piece(response=bytestring),
-          '\x08': lambda: Cancel(response=bytestring),
-          '\x09': lambda: Port(response=bytestring),
+          0: lambda: Choke(response=bytestring),
+          1: lambda: Unchoke(response=bytestring),
+          2: lambda: Interested(response=bytestring),
+          3: lambda: NotInterested(response=bytestring),
+          4: lambda: Have(response=bytestring),
+          5: lambda: Bitfield(response=bytestring),
+          6: lambda: Request(response=bytestring),
+          7: lambda: Piece(response=bytestring),
+          8: lambda: Cancel(response=bytestring),
+          9: lambda: Port(response=bytestring),
         }[response[4]]()     #response[4] is the msg_id
         message_obj = result
         #print repr(message_obj)
@@ -124,7 +127,7 @@ class Message(object):
     def __repr__(self):
         s = ''
         s += self.msg_length
-        s += self.msg_id
+        s += chr(self.msg_id)
         for arg_name in self.protocol_args:
             s += getattr(self, arg_name)
         if self.protocol_extended:
@@ -139,39 +142,39 @@ class KeepAlive(Message):
     msg_id = ''
 
 class Choke(Message):
-    msg_id = '\x00'
+    msg_id = 0
 
 class Unchoke(Message):
-    msg_id = '\x01'
+    msg_id = 1
 
 class Interested(Message):
-    msg_id = '\x02'
+    msg_id = 2
 
 class NotInterested(Message):
-    msg_id = '\x03'
+    msg_id = 3
 
 class Have(Message):
     protocol_args = ['index']
-    msg_id = '\x04'
+    msg_id = 4
 
 class Bitfield(Message):
     protocol_extended = 'bitfield'
-    msg_id = '\x05'
+    msg_id = 5
 
 class Request(Message):
     protocol_args = ['index','begin','length']
-    msg_id = '\x06'
+    msg_id = 6
     
 class Piece(Message):
     protocol_args = ['index','begin']
     protocol_extended = 'block'
-    msg_id = '\x07'
+    msg_id = 7
 
 class Cancel(Message):   
     protocol_args = ['index','begin','length']
-    msg_id = '\x08'
+    msg_id = 8
 
 class Port(Message):
     protocol_extended = 'listen_port'
-    msg_id = '\x09'
+    msg_id = 9
 
