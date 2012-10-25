@@ -5,24 +5,22 @@ import bencode
 import requests
 from twisted.internet.protocol import Protocol, ClientFactory
 from twisted.internet import reactor
-from torrent import *
+from torrent import Torrent
 from messages import *
 from pieces import *
 from bitstring import BitArray
 from bittorrenter import *
 
 NUMBER_PEERS = 7
+REQUEST_LENGTH = 2**14  #duplicate of what's in bittorrent.py; move to constants file
 
 class ActiveTorrent(object):
     def __init__(self, torrent_file):
         self.torrent_info = self.get_torrent(torrent_file)
-        self.peers = self.get_peers()       
-        print 'torrent_info from active torrent '+ str(self.torrent_info)
-        #self.piece_downloading = MyPiece(self.torrent_info.piece_length)  #clear and restart when creating a new piece
+        self.peers = self.get_peers() #k['10.242.11.108:8000']#self.get_peers()       
         self.file_downloading = TorrentFile(len(self.torrent_info.pieces_array), self.torrent_info.piece_length)
-        self.piece_number = 0   #increment this (by 8?) when creating a new piece?
-        self.requested_blocks = BitArray(self.torrent_info.length_of_file())  
-        self.have_blocks = BitArray(self.torrent_info.length_of_file())
+        self.requested_blocks = BitArray(self.torrent_info.length_of_file() / REQUEST_LENGTH)  
+        self.have_blocks = BitArray(self.torrent_info.length_of_file() / REQUEST_LENGTH)
 
 
     def connect(self, NUMBER_PEERS):
@@ -93,8 +91,8 @@ class ActiveTorrent(object):
         return handshake
 
 def main():  #torrent list passed in eventually
-    t = ActiveTorrent('test.torrent')
-#'Audiobook - War and Peace Book 02 by Leo tolstoy [mininova].torrent')#'test.torrent')
+    #t = ActiveTorrent('test.torrent')
+    t = ActiveTorrent('Audiobook - War and Peace Book 02 by Leo tolstoy [mininova].torrent')#'test.torrent')
     print t.peers
     t.connect(NUMBER_PEERS)
 

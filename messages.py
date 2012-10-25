@@ -74,7 +74,7 @@ class Handshake(object):
         self.info_hash = info_hash
         self.peer_id = peer_id
 
-    def __repr__(self):
+    def __str__(self):
         return self.pstrlen+self.pstr+self.reserved+self.info_hash+self.peer_id
 
     def __len__(self):
@@ -120,19 +120,22 @@ class Message(object):
         if self.protocol_extended:
             setattr(self, self.protocol_extended, kwargs[self.protocol_extended])
         if isinstance(self, KeepAlive):
-            self.msg_length = number_to_bytes(sum([len(x) for x in kwargs.values()]))
+            self.msg_length = number_to_bytes(sum([len(x) for x in kwargs.values()]))  #len(x)
         else:
-            self.msg_length = number_to_bytes(sum([len(x) for x in kwargs.values()]) + 1)
+            self.msg_length = number_to_bytes(sum([len(x) for x in kwargs.values()]) + 1)  #len(x)
 
-    def __repr__(self):
+    def __str__(self):
         s = ''
         s += self.msg_length
         s += chr(self.msg_id)
         for arg_name in self.protocol_args:
-            s += getattr(self, arg_name)
+            s += str(getattr(self, arg_name))
         if self.protocol_extended:
             s += getattr(self, self.protocol_extended)
-        return repr(s)
+        return s
+
+    def __repr__(self):
+        return repr(str(self))
 
     def __len__(self):
         return bytes_to_number(self.msg_length) + 4

@@ -1,5 +1,4 @@
 #!usr/bin/env python
-
 #kristen widman
 #Oct 10, 2012
 
@@ -53,7 +52,7 @@ class Torrent(object):
             files = info['files']              #files is a list of dictionaries
             for fileDict in files:
                 length += fileDict['length']
-            return length
+        return length
 
     def generate_peer_id(self):
         '''Input: none
