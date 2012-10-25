@@ -51,7 +51,7 @@ class MyPiece(object):
         #print 'block number ' + str(len(self.block_list))
         #print 'initial block_list ' + repr(self.block_list)
         self.full = self.check_if_full()  #There's probably a more elegant way to write this -- use 'all'?
-        print 'piece is full? ' + str(self.full)
+        #print 'piece is full? ' + str(self.full)
 
     def check_if_full(self):
         for block in self.block_list:
@@ -76,8 +76,8 @@ class MyPiece(object):
 class TorrentFile(object):
     def __init__(self, number_pieces, piece_size):
         self.piece_list = []
-        for piece in number_pieces:
-            self.piece_list.append(Piece(piece_size))
+        for piece in range(number_pieces):
+            self.piece_list.append(MyPiece(piece_size))
         
 if __name__ == "__main__":
     print 'testing blocks and pieces'

@@ -2,38 +2,38 @@
 #kristen widman
 #Oct 8, 2012
 
-import sys
-import socket
-import bencode
-import hashlib
-import binascii
-import requests
-import urllib
 from twisted.internet.protocol import Protocol, ClientFactory
 from twisted.internet import reactor
-from torrent import Torrent
-from active_torrent import ActiveTorrent
 from messages import *
-from pieces import *
+#from pieces import *
 from bitstring import BitArray
-#from sys import stdout
 
-max_requests = 15
-request_length = 2**14
+MAX_REQUESTS = 15
+REQUEST_LENGTH = 2**14
 
 class BittorrentProtocol(Protocol):
-    def __init__(self):
-        self.peer_has_pieces = BitArray(len(torrent_info.pieces_array)) 
+    def __init__(self, factory):
+        self.factory = factory 
+        self.peer_has_pieces = BitArray(len(self.factory.active_torrent.torrent_info.pieces_array)) 
         self.pending_requests = 0
         self.message_buffer = bytearray()
         self.interested = False
         self.peer_interested = False
         self.choked = True
         self.peer_choked = True
-        self.active_torrent = ActiveTorrent(torrent_info)
 
+    def handshake(self, torrent_obj):
+        '''Input: ip:port of a peer with the torrent files of interest
+           Output: <fill this in>
+           <fill this in>
+        '''
+        info_hash = torrent_obj.info_hash
+        peer_id = torrent_obj.peer_id
+        handshake = Handshake(info_hash, peer_id)
+        return handshake
+    
     def connectionMade(self):
-        handshake_msg = repr(handshake(self.factory.torrent_info))
+        handshake_msg = repr(self.handshake(self.factory.active_torrent.torrent_info))
         self.transport.write(handshake_msg)          
         #self.transport.loseConnection()
 
@@ -52,7 +52,7 @@ class BittorrentProtocol(Protocol):
             #print "message buffer was empty.  it is now: " + repr(self.message_buffer)
         if self.message_buffer[1:20].lower() == "BitTorrent Protocol".lower():
             print "handshake received"
-            self.message_buffer = self.decode_handshake(self.message_buffer, self.factory.torrent_info)
+            self.message_buffer = self.decode_handshake(self.message_buffer, self.factory.active_torrent.torrent_info)
             messages_to_send_list.append(repr(Interested()))
             self.interested = True
             #perhaps have error handling for if handshake is cut short
@@ -69,12 +69,13 @@ class BittorrentProtocol(Protocol):
 
     def get_next_request(self):
         #get next request
-        for i in range(len(self.have_blocks)): #should jump by request_length rather than every one
-            if self.peer_has_pieces[active_torrent.piece_number] & active_torrent.have_blocks[i]==0 & active_torrent.requested_blocks[i]==0:
-                print 'peer has piece ' + str(active_torrent.piece_number) + ' and I do not have and have not requested block ' + str(i)
-                if self.pending_requests <= max_requests:
+        for i in range(len(self.have_blocks)): #should jump by REQUEST_LENGTH rather than every one
+#next lines should maybe have references to active_torrent instead of factory?
+            if self.peer_has_pieces[factory.piece_number] & factory.have_blocks[i]==0 & factory.requested_blocks[i]==0:
+                print 'peer has piece ' + str(factory.piece_number) + ' and I do not have and have not requested block ' + str(i)
+                if self.pending_requests <= MAX_REQUESTS:
                     print 'creating a request object'
-                    request = Request(index=active_torrent.piece_number, begin=i, length=request_length)
+                    request = Request(index=active_torrent.piece_number, begin=i, length=REQUEST_LENGTH)
                     print 'request object created: ' + repr(request)
                     return repr(request)
         #pass  #use self.peer_has_pieces and self.factory.torrent_info
@@ -133,17 +134,21 @@ class BittorrentProtocol(Protocol):
         return other
 
 class BittorrentFactory(ClientFactory):
-    protocol = BittorrentProtocol
-    def __init__(self,torrent_info):
-        self.torrent_info = torrent_info
+    #protocol = BittorrentProtocol
 
     def startedConnecting(self,connector):
         print 'Started to connect.'
 
-    '''def buildProtocol(self,addr):
+    def __init__(self, active_torrent):
+        self.protocols = []
+        self.active_torrent = active_torrent
+
+    def buildProtocol(self,addr):  #may need this again instead of protocol line at top to keep track of protocols
         print 'Connected.'
-        return BittorrentProtocol(self.torrent_info)
-    '''
+        protocol = BittorrentProtocol(self)
+        self.protocols.append(protocol)
+        return protocol
+    
     def clientConnectionLost(self,connector,reason):
         print 'Lost connection. Reason: ', reason
         #reconnect?
@@ -151,7 +156,7 @@ class BittorrentFactory(ClientFactory):
     def clientConnectionFailed(self,connector,reason):
         print 'Connection failed. Reason: ', reason
 
-def set_up_file(torrent_info):
+'''def set_up_file(torrent_info):
     number_pieces = len(torrent_info.pieces_array)
     print 'number of pieces for torrent: ' + str(number_pieces)
     print 'piece length: ' + str(torrent_info.piece_length)
@@ -161,4 +166,4 @@ def set_up_file(torrent_info):
     #print 'piece list: ' + repr(piece_list)
     print 'object created'
     return piece_list
-
+'''
