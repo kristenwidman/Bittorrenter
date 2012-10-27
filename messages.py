@@ -27,33 +27,6 @@ def bytes_to_number(bytestring):  #assumed to be 4 bytes long
         i -= 1
     return number
 
-def parse_message_from_response(response):
-    if len(response) < 4:  #don't have full message
-        return None, response
-    length = bytes_to_number(response[0:4]) + 4  #length indicated by the first 4 bytes + 4 for those first 4 bytes
-    bytestring = response[:length]
-    if len(response) < length:   #don't have full message, so send back and wait to be combined with rest of message
-        return None, response
-    elif response[0:4] == '\x00\x00\x00\x00':  #no msg_id
-        message_obj = KeepAlive(response=bytestring)
-    else:
-        result = {
-          0: lambda: Choke(response=bytestring),
-          1: lambda: Unchoke(response=bytestring),
-          2: lambda: Interested(response=bytestring),
-          3: lambda: NotInterested(response=bytestring),
-          4: lambda: Have(response=bytestring),
-          5: lambda: Bitfield(response=bytestring),
-          6: lambda: Request(response=bytestring),
-          7: lambda: Piece(response=bytestring),
-          8: lambda: Cancel(response=bytestring),
-          9: lambda: Port(response=bytestring),
-        }[response[4]]()     #response[4] is the msg_id
-        message_obj = result
-        #print repr(message_obj)
-    response = response[length:]
-    return message_obj, response
-
 class Handshake(object):
     """Represents a handshake object"""
     def __init__(self,*args):
