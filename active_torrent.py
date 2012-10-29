@@ -20,7 +20,7 @@ class ActiveTorrent(object):
         self.peers = self.get_peers() #k['10.242.11.108:8000']#self.get_peers()       
         self.file_downloading = TorrentFile(len(self.torrent_info.pieces_array), self.torrent_info.piece_length)
         self.requested_blocks = BitArray(self.torrent_info.length_of_file() / REQUEST_LENGTH)  
-        self.have_blocks = BitArray(self.torrent_info.length_of_file() / REQUEST_LENGTH)
+        self.have_blocks = BitArray(self.torrent_info.length_of_file() / REQUEST_LENGTH)  #might be one extra?
 
 
     def connect(self, NUMBER_PEERS):

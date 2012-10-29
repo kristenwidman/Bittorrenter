@@ -19,7 +19,6 @@ class Block(object):
             return True
         else:
             return False
-            #print False
    
     def get_info(self):
         print 'length of bytestring: ' + str(len(self.bytestring))
@@ -31,15 +30,11 @@ class Block(object):
         self.full = self.check_if_full()
 
     def __repr__(self):
-        #if self.bytestring == '':
-            #return 'None'
-        #else:
         return repr(self.bytestring)
 
 class MyPiece(object):
     def __init__(self, piece_size):
         self.block_size = 2**14
-        #self.block_size = 2**3
         self.block_number = piece_size/self.block_size
         self.block_list = []
         for block in range(self.block_number):
@@ -54,10 +49,15 @@ class MyPiece(object):
         #print 'piece is full? ' + str(self.full)
 
     def check_if_full(self):
-        for block in self.block_list:
-            if block.full == False:
+        print 'number of blocks ' + str(self.block_number)
+        for i in range(self.block_number):
+
+        #for i,block in enumerate(self.block_list):
+            print 'block number ' + str(i) + 'is full? ' + str(self.block_list[i].check_if_full())
+            #if block.check_if_full() == False:
+            if self.block_list[i].check_if_full() == False:
                 return False
-            else: return True
+        return True
 
     def write(self, piece_offset, bytestring):
         block_index = piece_offset / self.block_size
