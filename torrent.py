@@ -15,22 +15,27 @@ class Torrent(object):
     def __init__(self, metainfo):
         self.metainfo = metainfo
         self.announce_url = self.metainfo['announce']
-        info = self.metainfo['info']
-        sha_info=hashlib.sha1(bencode.bencode(info))
+        self.info = self.metainfo['info']
+        sha_info = hashlib.sha1(bencode.bencode(self.info))
         self.info_hash = sha_info.digest()
         self.peer_id = self.generate_peer_id()
-        self.uploaded=0 #update later
-        self.downloaded=0 # update later
-        self.left=self.length_of_file() #udpate later to calculate as changes
-        self.compact=1
-        self.no_peer_id=0
-        self.event="started"
+        self.uploaded = 0 #update later
+        self.downloaded = 0 # update later
+        self.overall_length = self.length_of_file()
+        self.left = self.overall_length #udpate later to calculate as changes
+        self.compact = 1
+        self.no_peer_id = 0
+        self.event = "started"
         self.port = LOCAL_PORT
         self.param_dict = {'info_hash':self.info_hash, 'peer_id':self.peer_id, 'port':self.port,
                     'uploaded':self.uploaded,'downloaded':self.downloaded, 'left':self.left, 
                 'compact':self.compact, 'no_peer_id':self.no_peer_id, 'event':self.event}
-        self.piece_length = info['piece length']
-        pieces_hash = info['pieces']
+        if 'name' in self.info:
+            self.folder_name = self.info['name']
+        else:
+            self.folder_name = 'torrent'
+        self.piece_length = self.info['piece length']
+        pieces_hash = self.info['pieces']
         self.pieces_array = []    
         while len(pieces_hash) > 0:
             self.pieces_array.append(pieces_hash[0:20])
