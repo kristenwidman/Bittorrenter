@@ -48,6 +48,7 @@ class MyPiece(object):
         #print 'block number ' + str(len(self.block_list))
         #print 'initial block_list ' + repr(self.block_list)
         self.full = self.check_if_full()  #There's probably a more elegant way to write this -- use 'all'?
+        self.written = False
 
     def check_if_full(self):
         for i in range(self.block_number):

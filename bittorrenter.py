@@ -2,16 +2,13 @@
 #kristen widman
 #Oct 8, 2012
 
-from hashlib import sha1
 from time import time
 from struct import *
 from twisted.internet.protocol import Protocol, ClientFactory
 from twisted.internet import reactor
 from messages import *
 from bitstring import BitArray
-
-MAX_REQUESTS = 15
-REQUEST_LENGTH = 2**14
+from constants import *
 
 class BittorrentProtocol(Protocol):
     def __init__(self, factory):
@@ -42,7 +39,6 @@ class BittorrentProtocol(Protocol):
         messages_to_send = self.deal_with_message(data)
         for i,message in enumerate(messages_to_send):
             if message is not None:
-                #print 'message '+ str(i) + ' to be sent: ' + repr(message)
                 self.transport.write(str(message))
     
     def deal_with_message(self,data):
@@ -67,80 +63,18 @@ class BittorrentProtocol(Protocol):
     
     def get_next_request(self):
         for i in range(len(self.factory.active_torrent.have_blocks)): 
-            piece_num, block_byte_offset = self.determine_piece_and_block_nums(i)
+            piece_num, block_byte_offset = self.factory.active_torrent.determine_piece_and_block_nums(i)
             if (self.peer_has_pieces[piece_num] and 
                     self.factory.active_torrent.have_blocks[i]==0 and 
                     self.factory.active_torrent.requested_blocks[i]==0):
                 if self.pending_requests <= MAX_REQUESTS:
                     self.factory.active_torrent.requested_blocks[i] = 1
                     self.factory.active_torrent.pending_timeout[i] = time()
-                    request = self.format_request(piece_num, block_byte_offset)
+                    request = self.factory.active_torrent.format_request(piece_num, block_byte_offset)
                     return request
-
-    def determine_piece_and_block_nums(self, overall_block_num):
-        block_location_overall = overall_block_num * REQUEST_LENGTH
-        piece_num = block_location_overall / self.factory.active_torrent.torrent_info.piece_length
-        block_byte_offset = block_location_overall % self.factory.active_torrent.torrent_info.piece_length
-        return piece_num, block_byte_offset
-
-    def format_request(self, piece_num, block_byte_offset):
-        block_num_in_piece = block_byte_offset / REQUEST_LENGTH
-        piece = self.factory.active_torrent.file_downloading.piece_list[piece_num]
-        request_len = piece.block_list[block_num_in_piece].expected_length
-        index_pack = pack('!l',piece_num)
-        begin_pack = pack('!l', block_byte_offset)
-        length_pack = pack('!l',request_len) 
-        print 'generating request for piece: ' + str(piece_num)+' and block: ' + str(block_byte_offset / REQUEST_LENGTH)
-#will be smaller than REQUEST_LEN for last block - need to account for that!
-        request = Request(index=index_pack, begin=begin_pack, length=length_pack)
-        #print 'request object created: ' + repr(request)
-        return request 
-
-    def clear_data(self, piece, piece_num, blocks_per_full_piece):
-        #write piece's blocks to empty (do a debug if_full check to verify)
-        #set have and requested blocks for piect to 0
-        print 'clear_data called because hashes did not match'
-        for block_num,block in enumerate(piece.block_list):
-            piece.write(block_num, '')
-            self.factory.active_torrent.have_blocks[block_num + piece_num * blocks_per_full_piece] = 0
-            self.factory.active_torrent.requested_blocks[block_num + piece_num * blocks_per_full_piece] = 0
-        print 'after clearing, is the piece full? (should be False) ' + piece.check_if_full()
-
-    def check_hash(self, piece, piece_num, blocks_per_full_piece):
-        print 'piece ' + str(piece_num) + ' is full!'
-        piece_string = ''
-        for block in piece.block_list:
-            piece_string += block.bytestring
-        hash_calculated = sha1(piece_string)
-        if hash_calculated.digest() == self.factory.active_torrent.torrent_info.pieces_array[piece_num]:
-            print 'hashes matched, writing piece'
-            self.factory.active_torrent.write_piece(piece,piece_num)
-        else:
-            print 'HASHES DID NOT MATCH'
-            print '\thash calulated: ' + repr(hash_calculated.digest())
-            print '\thash expected for piece '+str(piece_num) +' : ' + repr(self.factory.active_torrent.torrent_info.pieces_array[piece_num])
-            self.clear_data(piece,piece_num,blocks_per_full_piece)
-
-    def write_block(self,block):
-        block_num_in_piece = bytes_to_number(block.begin) / REQUEST_LENGTH
-        piece_num = bytes_to_number(block.index)
-        piece = self.factory.active_torrent.file_downloading.piece_list[piece_num]
-        blocks_per_full_piece = self.factory.active_torrent.torrent_info.piece_length / REQUEST_LENGTH #piece.block_number 
-        piece.write(block_num_in_piece, block.block)
-        block_num_overall = block_num_in_piece + piece_num * blocks_per_full_piece
-        self.factory.active_torrent.have_blocks[block_num_overall] = 1  #add block to have list
-        print '\npiece ' + str(piece_num) +' and block '+ str(block_num_in_piece) + ' received'
-        if block_num_overall in self.factory.active_torrent.pending_timeout: #remove block from timeout pending dict
-            del self.factory.active_torrent.pending_timeout[block_num_overall]
-        '''else:
-            self.factory.active_torrent.requested_blocks[block_num_overall] = 1 #not needed, but cleaner - if it's not in the timeout dict, it should have been set to 0 in the requested_blocks list if it timed out
-        '''
-        if piece.check_if_full():
-            self.check_hash(piece,piece_num,blocks_per_full_piece)
 
     def parse_messages(self, messages_to_send_list):
         message_obj = self.parse_message_from_response()
-        #print 'message type: ' + repr(type(message_obj))
         if isinstance(message_obj, Choke):
             print 'Choked'
             self.choked = True
@@ -148,11 +82,8 @@ class BittorrentProtocol(Protocol):
             print 'Unchoked!'
             self.choked = False
             if self.interested == True and self.choked == False:
-                messages_to_send_list.append(self.get_next_request())
-                messages_to_send_list.append(self.get_next_request())
-                messages_to_send_list.append(self.get_next_request())
-                messages_to_send_list.append(self.get_next_request())
-                messages_to_send_list.append(self.get_next_request())
+                for i in range(5):
+                    messages_to_send_list.append(self.get_next_request())
         elif isinstance(message_obj, Interested):
             self.peer_interested = True
         elif isinstance(message_obj, NotInterested):
@@ -169,10 +100,10 @@ class BittorrentProtocol(Protocol):
             if self.interested == True and self.choked == False:
                 messages_to_send_list.append(self.get_next_request())
         elif isinstance(message_obj, Request):
+            print 'request'
             pass  #send piece
         elif isinstance(message_obj, Piece):
-            #print '\nPIECE!\n'    # do something with this
-            self.write_block(message_obj)  #has logic for checking if piece full?
+            self.factory.active_torrent.write_block(message_obj)  
             if self.interested == True and self.choked == False:
                 messages_to_send_list.append(self.get_next_request())
         elif isinstance(message_obj, Cancel):
@@ -189,7 +120,7 @@ class BittorrentProtocol(Protocol):
         expected_peer_id = torrent_obj.peer_id
         expected_info_hash = torrent_obj.info_hash
         if (expected_info_hash != handshake.info_hash):
-            #instead of throwing exception, we should send a cancel message
+            #instead of throwing exception, we should send a cancel message or add deffered and errback
             raise Exception('info_hash does not match expected. Info hash expected: ' +
                             repr(expected_info_hash) + '. Info hash found: ' + repr(handshake.info_hash))
         return other
@@ -225,7 +156,6 @@ class BittorrentProtocol(Protocol):
         self.factory.protocols.remove(self)
 
 class BittorrentFactory(ClientFactory):
-    #protocol = BittorrentProtocol
 
     def startedConnecting(self,connector):
         print 'Started to connect.'
@@ -234,7 +164,7 @@ class BittorrentFactory(ClientFactory):
         self.protocols = []
         self.active_torrent = active_torrent
 
-    def buildProtocol(self,addr):  #may need this again instead of protocol line at top to keep track of protocols
+    def buildProtocol(self,addr):  
         print 'Connected.'
         protocol = BittorrentProtocol(self)
         self.protocols.append(protocol)
