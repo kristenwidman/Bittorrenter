@@ -100,7 +100,8 @@ class Message(object):
     def __str__(self):
         s = ''
         s += self.msg_length
-        s += chr(self.msg_id)
+        if self.msg_id != '':
+            s += chr(self.msg_id)
         for arg_name in self.protocol_args:
             s += str(getattr(self, arg_name))
         if self.protocol_extended:

@@ -25,6 +25,7 @@ class ActiveTorrent(object):
         self.pending_timeout = dict()
         self.factory = BittorrentFactory(self)
         self.blocks_per_full_piece = self.torrent_info.piece_length / REQUEST_LENGTH 
+        self.setup_temp_file()
 
     def determine_block_number(self):
         block_number = 0
@@ -38,6 +39,18 @@ class ActiveTorrent(object):
         f.close()
         torrent_info = Torrent(metainfo)
         return torrent_info
+
+    def setup_temp_file(self):
+        folder_name = self.torrent_info.folder_name.rsplit('.',1)[0] #if a single file, this takes off the extension       
+        self.folder_directory = os.path.join(self.writing_dir, folder_name)
+        self.temp_file_path = os.path.join(self.folder_directory, folder_name + '.temp')
+        #assumption that writing_dir exists already, since this is passed in
+        try:
+            os.mkdir(self.folder_directory)  #if can't create dir, already exists and file has been partially downloaded before prob
+        except:
+            if os.path.exists(self.temp_file_path):
+                open(self.temp_file_path, 'w').close() #clears file of all contents if exists; this is for testing with files multiple times
+        self.tempfile = open(self.temp_file_path, 'wb') #open only once 
 
     def connect(self, NUMBER_PEERS):
         number_connections = 0
@@ -98,7 +111,7 @@ class ActiveTorrent(object):
         return handshake
 
     def check_for_expired_requests(self):
-        print "\nChecking for expired requests"
+        #print "\nChecking for expired requests"
         now = time()
         pairs = [(k,v) for (k,v) in self.pending_timeout.iteritems()]
         for item in pairs:             
@@ -107,7 +120,7 @@ class ActiveTorrent(object):
             #v = item[1]
             #k = item[0]
             if (now - v) > PENDING_TIMEOUT:
-                print 'pending request for block ' +str(k) +'is too old'
+                #print 'pending request for block ' +str(k) +'is too old'
                 del self.pending_timeout[k]
                 self.requested_blocks[k] = 0
                 piece_num, block_bytes_in_piece = self.determine_piece_and_block_nums(k) 
@@ -117,83 +130,61 @@ class ActiveTorrent(object):
                 for protocol in self.factory.protocols:
                     if protocol.interested == True and protocol.choked == False:
                         protocol.transport.write(str(request))
+                        protocol.message_timeout = time()
                         self.requested_blocks[block_num_overall] = 1
                         self.pending_timeout[block_num_overall] = time()
-                        print 'request sent for expired piece'
+                        #print 'request sent for expired piece'
 #should send a cancel to peer that we initially requested this from; (and send another request?)
 #how to do this?
 
     def write_piece(self, piece, piece_num):
-        #folder_name = self.torrent_info.folder_name
-        folder_name = self.torrent_info.folder_name.rsplit('.',1)[0] #if a single file, this takes off the extension       
-        #if directory exists, move to it; if not, create it
-        if os.getcwd() != self.writing_dir + folder_name:
-            print "Making New Directory"
-            os.chdir(self.writing_dir)
-            try:
-                os.mkdir(folder_name)  #if can't create dir, then already exists and file has been partially downloaded before probably
-            except:
-                open(folder_name + '/' + folder_name + '.temp', 'w').close() #clears file of all contents if exists
-            os.chdir(folder_name)
-        file_name = folder_name + '.temp'
         piece_offset = piece_num * self.torrent_info.piece_length
-        f = open(file_name, 'ab') #append to file so does not truncate
         for i,block in enumerate(piece.block_list):
-            f.seek(piece_offset + i * REQUEST_LENGTH)
-            f.write(block.bytestring)
-        f.close()
+            self.tempfile.seek(piece_offset + i * REQUEST_LENGTH)
+            self.tempfile.write(block.bytestring)
         piece.written = True
         self.check_if_done()
-#send have messages to all peers with piece num; how to do this?
 
     def check_if_done(self):
-        print 'Checking if complete'
+        #print 'Checking if complete'
         if all(self.have_blocks):
             print '\nTorrent completely downloaded!\n'
             reactor.stop() #download complete, stop the reactor loop
+            self.tempfile.close()
             self.write_all_files()
 
     def write_all_files(self):
-        print 'writing final files'
-        folder_name = self.torrent_info.folder_name.rsplit('.',1)[0]
-        print 'folder name: ' + folder_name
-        directory = self.writing_dir + folder_name
-        temp_file = directory + '/' + folder_name + '.temp'
-        if os.getcwd() != directory:
-            os.chdir(directory)
+        #print 'writing final files'
         info = self.torrent_info.info
         if 'files' in info:
             print 'multiple files. creating files and folders.'
-            f_read = open(temp_file,'rb')
+            f_read = open(self.temp_file_path,'rb')
             files_list = info['files']
             for element in files_list:
                 path_list = element['path']
-                print 'path: ' + repr(path_list)
                 length = element['length']
                 i = 0
+                #make sure directory structure exists
+                sub_folder = self.folder_directory
                 while i + 1 < len(path_list):  #create directory structure
-                    if not os.path.isdir(path_list[i]): #folder does not exist yet
-                        print 'creating new directory called: ' + path_list[i]
-                        os.mkdir(path_list[i])
-                    os.chdir(path_list[i])
+                    sub_folder = os.path.join(sub_folder, path_list[i])
+                    if not os.path.isdir(sub_folder): #folder does not exist yet
+                        #print 'creating new directory called: ' + path_list[i]
+                        os.mkdir(sub_folder)
                     i += 1
-                f_write = open(path_list[-1], 'wb')
-                print 'writing file '+ repr(path_list[-1])
+                final_file_path = os.path.join(sub_folder, path_list[-1])
+                f_write = open(final_file_path, 'wb')
+                print 'writing file '+ final_file_path
                 data = f_read.read(length)
                 f_write.write(data)
                 #cleanup:
                 f_write.close()
-                os.chdir(directory) #move back to base dir                       
             f_read.close()
-            #os.remove(temp_file)
+            os.remove(self.temp_file_path)
         else:
             print 'single file. renaming'
             extension = self.torrent_info.folder_name.rsplit('.',1)[1]
-            print 'temp file name: ' + temp_file
-            print 'extension: ' + extension
-            print 'current wd: ' + os.getcwd()
-            print 'files in dir: '+repr(os.listdir(os.getcwd()))
-            os.rename(temp_file, temp_file[:-4]+extension)  #just rename file with correct extension
+            os.rename(self.temp_file_path, self.temp_file_path[:-4]+extension)  #just rename file with correct extension
 
     def format_request(self, piece_num, block_byte_offset):
         block_num_in_piece = block_byte_offset / REQUEST_LENGTH 
@@ -203,9 +194,7 @@ class ActiveTorrent(object):
         begin_pack = pack('!l', block_byte_offset)
         length_pack = pack('!l',request_len) 
         print 'generating request for piece: ' + str(piece_num)+' and block: ' + str(block_byte_offset / REQUEST_LENGTH)
-#will be smaller than REQUEST_LEN for last block - need to account for that!
         request = Request(index=index_pack, begin=begin_pack, length=length_pack)
-        #print 'request object created: ' + repr(request)
         return request 
         
     def clear_data(self, piece, piece_num):
@@ -265,16 +254,28 @@ class ActiveTorrent(object):
     def block_index_to_bytes(self, block_index):
         return block_index * REQUEST_LENGTH
 
+    def check_for_keep_alives(self):
+        for protocol in self.factory.protocols:
+            now = time()
+            if (now - protocol.message_timeout) > KEEP_ALIVE_TIMEOUT:
+                print 'Keep Alive message sent'
+                protocol.transport.write(str(KeepAlive()))
+                protocol.message_timeout = time()
+
 def main():  #torrent list passed in eventually
     writing_dir = '/Users/kristenwidman/Downloads/'
     #t = ActiveTorrent('test.torrent',writing_dir)
     #t = ActiveTorrent('Audiobook - War and Peace Book 02 by Leo tolstoy [mininova].torrent',writing_dir)
     t = ActiveTorrent('Ebook-Alice_In_Wonderland[mininova].torrent',writing_dir)
+    #t = ActiveTorrent('Ebook - Engineering Acoustics [mininova].torrent', writing_dir)
+    #t = ActiveTorrent('Ebook - Human physiology [mininova].torrent', writing_dir)
     print t.peers
     t.connect(NUMBER_PEERS)
 
-    l = task.LoopingCall(t.check_for_expired_requests)
-    l.start(PENDING_TIMEOUT) #run every x seconds
+    l_expired = task.LoopingCall(t.check_for_expired_requests)
+    l_expired.start(PENDING_TIMEOUT) #run every x seconds
+    l_send_keep_alives = task.LoopingCall(t.check_for_keep_alives)
+    l_send_keep_alives.start(KEEP_ALIVE_TIMEOUT/2)
 
     reactor.run()
 

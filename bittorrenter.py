@@ -20,6 +20,7 @@ class BittorrentProtocol(Protocol):
         self.peer_interested = False
         self.choked = True
         self.peer_choked = True
+        self.message_timeout = time()
 
     def handshake(self, torrent_obj):
         '''Input: ip:port of a peer with the torrent files of interest
@@ -33,13 +34,16 @@ class BittorrentProtocol(Protocol):
     
     def connectionMade(self):
         handshake_msg = str(self.handshake(self.factory.active_torrent.torrent_info))
-        self.transport.write(handshake_msg)          
+        self.transport.write(handshake_msg)
+        self.message_timeout = time()
 
     def dataReceived(self,data):
+        self.message_timeout = time()
         messages_to_send = self.deal_with_message(data)
         for i,message in enumerate(messages_to_send):
             if message is not None:
                 self.transport.write(str(message))
+                self.message_timeout = time()
     
     def deal_with_message(self,data):
         messages_to_send_list = []
