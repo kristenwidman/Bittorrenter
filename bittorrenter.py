@@ -5,7 +5,6 @@
 from time import time
 from struct import *
 from twisted.internet.protocol import Protocol, ClientFactory
-from twisted.internet import reactor
 from messages import *
 from bitstring import BitArray
 from constants import *
@@ -47,14 +46,14 @@ class BittorrentProtocol(Protocol):
     
     def deal_with_message(self,data):
         messages_to_send_list = []
-        messages_add = []
         if self.message_buffer:
             self.message_buffer.extend(bytearray(data))
         else:
             self.message_buffer = bytearray(data)
-        if self.message_buffer[1:20].lower() == "BitTorrent Protocol".lower():
+        if self.message_buffer[1:20].lower() == "bittorrent protocol":
             print "handshake received"
-            self.message_buffer = self.decode_handshake(self.factory.active_torrent.torrent_info)
+            self.decode_handshake(self.factory.active_torrent.torrent_info)
+            self.message_buffer = self.message_buffer[68:]
             messages_to_send_list.append(Interested())
             self.interested = True
             #perhaps have error handling for if handshake is cut short
@@ -64,11 +63,12 @@ class BittorrentProtocol(Protocol):
                 messages_to_send_list = self.parse_messages(messages_to_send_list)
                 message_length = bytes_to_number(self.message_buffer[0:4])+4
         return messages_to_send_list
-    
+
     def get_next_request(self):
-        for i in range(len(self.factory.active_torrent.have_blocks)): 
+        total_number_of_blocks = len(self.factory.active_torrent.bitarray_of_block_number())
+        for i in range(total_number_of_blocks):
             piece_num, block_byte_offset = self.factory.active_torrent.determine_piece_and_block_nums(i)
-            if (self.peer_has_pieces[piece_num] and 
+            if (self.peer_has_pieces[piece_num] and
                     self.factory.active_torrent.have_blocks[i]==0 and 
                     self.factory.active_torrent.requested_blocks[i]==0):
                 if self.pending_requests <= MAX_REQUESTS:
@@ -85,7 +85,7 @@ class BittorrentProtocol(Protocol):
         elif isinstance(message_obj, Unchoke):
             print 'Unchoked!'
             self.choked = False
-            if self.interested == True and self.choked == False:
+            if self.interested:
                 for i in range(5):
                     messages_to_send_list.append(self.get_next_request())
         elif isinstance(message_obj, Interested):
@@ -93,22 +93,21 @@ class BittorrentProtocol(Protocol):
         elif isinstance(message_obj, NotInterested):
             self.peer_interested = False
         elif isinstance(message_obj, Have):
-            piece_index = message_obj.index
-            piece_index = bytes_to_number(piece_index)
+            piece_index = bytes_to_number(message_obj.index)
             self.peer_has_pieces[piece_index] = 1
-            if self.interested == True and self.choked == False:
+            if self.interested and not self.choked:
                 messages_to_send_list.append(self.get_next_request())
         elif isinstance(message_obj, Bitfield):
             bitarray = BitArray(bytes=message_obj.bitfield)
             self.peer_has_pieces = bitarray[:len(self.peer_has_pieces)]
-            if self.interested == True and self.choked == False:
+            if self.interested and not self.choked:
                 messages_to_send_list.append(self.get_next_request())
         elif isinstance(message_obj, Request):
             print 'request'
             pass  #send piece
         elif isinstance(message_obj, Piece):
             self.factory.active_torrent.write_block(message_obj)  
-            if self.interested == True and self.choked == False:
+            if self.interested and not self.choked:
                 messages_to_send_list.append(self.get_next_request())
         elif isinstance(message_obj, Cancel):
             print 'cancel'
@@ -117,29 +116,21 @@ class BittorrentProtocol(Protocol):
             #parse port and switch connection to that port
         return messages_to_send_list
 
-
     def decode_handshake(self, torrent_obj):
         handshake = Handshake(self.message_buffer)
-        other = self.message_buffer[68:]
-        expected_peer_id = torrent_obj.peer_id
         expected_info_hash = torrent_obj.info_hash
         if (expected_info_hash != handshake.info_hash):
-            #instead of throwing exception, we should send a cancel message or add deffered and errback
+            #TODO: instead of throwing exception, we should send a cancel message or add deffered and errback
             raise Exception('info_hash does not match expected. Info hash expected: ' +
                             repr(expected_info_hash) + '. Info hash found: ' + repr(handshake.info_hash))
-        return other
 
     def parse_message_from_response(self):
-        if len(self.message_buffer) < 4:  #don't have full message
-            return None
         length = bytes_to_number(self.message_buffer[0:4]) + 4  #length indicated by the first 4 bytes + 4 for those first 4 bytes
         bytestring = self.message_buffer[:length]
-        if len(self.message_buffer) < length:   #don't have full message, so send back and wait to be combined with rest of message
-            return None
-        elif self.message_buffer[0:4] == '\x00\x00\x00\x00':  #no msg_id
+        if self.message_buffer[0:4] == '\x00\x00\x00\x00':  #no msg_id
             message_obj = KeepAlive(response=bytestring)
         else:
-            result = {
+            message_obj  = {
               0: lambda: Choke(response=bytestring),
               1: lambda: Unchoke(response=bytestring),
               2: lambda: Interested(response=bytestring),
@@ -151,8 +142,6 @@ class BittorrentProtocol(Protocol):
               8: lambda: Cancel(response=bytestring),
               9: lambda: Port(response=bytestring),
             }[self.message_buffer[4]]()     #response[4] is the msg_id
-            message_obj = result
-            #print repr(message_obj)
         self.message_buffer = self.message_buffer[length:]
         return message_obj
 
@@ -160,24 +149,23 @@ class BittorrentProtocol(Protocol):
         self.factory.protocols.remove(self)
 
 class BittorrentFactory(ClientFactory):
-
-    def startedConnecting(self,connector):
-        print 'Started to connect.'
-
     def __init__(self, active_torrent):
         self.protocols = []
         self.active_torrent = active_torrent
+
+    def startedConnecting(self,connector):
+        print 'Started to connect.'
 
     def buildProtocol(self,addr):  
         print 'Connected.'
         protocol = BittorrentProtocol(self)
         self.protocols.append(protocol)
         return protocol
-    
+
     def clientConnectionLost(self,connector,reason):
         print 'Lost connection. Reason: ', reason
         #reconnect?
-        
+
     def clientConnectionFailed(self,connector,reason):
         print 'Connection failed. Reason: ', reason
 

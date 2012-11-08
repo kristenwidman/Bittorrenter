@@ -6,12 +6,13 @@ import bencode
 from time import time
 from bitstring import BitArray
 from hashlib import sha1
+from struct import pack
 import requests
 from twisted.internet import reactor, task
 from torrent import Torrent
 from messages import *
 from pieces import *
-from bittorrenter import *
+from bittorrenter import BittorrentFactory, BittorrentProtocol  #TODO: check if need BittorrentProtocol
 from constants import *
 
 class ActiveTorrent(object):
@@ -19,15 +20,15 @@ class ActiveTorrent(object):
         self.torrent_info = self.get_torrent(torrent_file)
         self.peers = self.get_peers() 
         self.file_downloading = TorrentFile(self.torrent_info.overall_length, self.torrent_info.piece_length)
-        self.requested_blocks = self.determine_block_number()
-        self.have_blocks = self.determine_block_number()
-        self.writing_dir = writing_dir 
+        self.requested_blocks = self.bitarray_of_block_number()
+        self.have_blocks = self.bitarray_of_block_number()
+        self.writing_dir = writing_dir  #check if this still needs to be an attribute
         self.pending_timeout = dict()
         self.factory = BittorrentFactory(self)
         self.blocks_per_full_piece = self.torrent_info.piece_length / REQUEST_LENGTH 
         self.setup_temp_file()
 
-    def determine_block_number(self):
+    def bitarray_of_block_number(self):
         block_number = 0
         for piece in self.file_downloading.piece_list:
             block_number += piece.block_number
@@ -41,6 +42,7 @@ class ActiveTorrent(object):
         return torrent_info
 
     def setup_temp_file(self):
+        #TODO: check if folder_name can have an extension
         folder_name = self.torrent_info.folder_name.rsplit('.',1)[0] #if a single file, this takes off the extension       
         self.folder_directory = os.path.join(self.writing_dir, folder_name)
         self.temp_file_path = os.path.join(self.folder_directory, folder_name + '.temp')
@@ -71,23 +73,20 @@ class ActiveTorrent(object):
         '''
         response = bencode.bdecode(r.content)
         peers = response['peers']
-        i=1
         peer_address = ''
         peer_list = []
-        for c in peers:
-            if i%6 == 5:
+        for i,c in enumerate(peers):
+            if i%6 == 4:
                 port_large = ord(c)*256
-            elif i%6 == 0:
+            elif i%6 == 5:
                 port = port_large + ord(c)
                 peer_address += ':'+str(port)
                 peer_list.append(peer_address)
                 peer_address = ''
-                i = 0
-            elif i%6 == 4:
+            elif i%6 == 3:
                 peer_address += str(ord(c))
             else:
                 peer_address += str(ord(c))+'.'
-            i += 1
         return peer_list
 
     def get_peers(self):
@@ -238,9 +237,8 @@ class ActiveTorrent(object):
             self.check_hash(piece,piece_num)
 
     def determine_piece_and_block_nums(self, overall_block_num):
-        piece_num, block_num_overall = self.overall_index_to_piece_and_index(overall_block_num)
-        block_bytes_overall = self.block_index_to_bytes(block_num_overall)
-        block_byte_offset = block_bytes_overall % self.torrent_info.piece_length 
+        piece_num, block_index_in_piece  = self.overall_index_to_piece_and_index(overall_block_num)
+        block_byte_offset = self.block_index_to_bytes(block_index_in_piece)
         return piece_num, block_byte_offset
 
     def piece_and_index_to_overall_index(self, block_piece_index, piece_num):

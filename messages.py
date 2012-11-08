@@ -4,7 +4,8 @@
 #Oct 15, 2012
 
 
-def number_to_bytes(number):  #returns a number 4 bytes long
+def number_to_bytes(number):  
+    '''returns a number 4 bytes long'''
     if number < 255:
         length = '\x00\x00\x00' + chr(number)
     elif number < 256**2:
@@ -16,7 +17,8 @@ def number_to_bytes(number):  #returns a number 4 bytes long
         length = (chr((number)/256**3) + chr(((number)%256**3)/256**2) + chr((((number)%256**3)%256**2)/256) + chr((((number)%256**3)%256**2)%256))
     return length
 
-def bytes_to_number(bytestring):  #assumed to be 4 bytes long
+def bytes_to_number(bytestring):  
+    '''bytestring assumed to be 4 bytes long and represents 1 number'''
     number = 0
     i = 3
     for byte in bytestring:
@@ -28,14 +30,17 @@ def bytes_to_number(bytestring):  #assumed to be 4 bytes long
     return number
 
 class Handshake(object):
-    """Represents a handshake object"""
+    """Represents a handshake object
+        Has 2 inits to create from incoming bytestring or from info_hash and peer_id
+        for outgoing handshake.
+    """
     def __init__(self,*args):
         if len(args) == 1: self.__setup1(*args)
         elif len(args) == 2: self.__setup2(*args)  
         
     def __setup1(self,payload):
         self.pstrlen = payload[0]
-        self.pstr = payload[1:20]  #assuming that pstrlen will be 19; might not be true (if in another protocol)
+        self.pstr = payload[1:20]  #pstrlen assumed = 19; might not be true (if in another protocol)
         self.reserved = payload[20:28]
         self.info_hash = payload[28:48]
         self.peer_id = payload[48:68]
@@ -93,9 +98,9 @@ class Message(object):
         if self.protocol_extended:
             setattr(self, self.protocol_extended, kwargs[self.protocol_extended])
         if isinstance(self, KeepAlive):
-            self.msg_length = number_to_bytes(sum([len(x) for x in kwargs.values()]))  #len(x)
+            self.msg_length = number_to_bytes(0)
         else:
-            self.msg_length = number_to_bytes(sum([len(x) for x in kwargs.values()]) + 1)  #len(x)
+            self.msg_length = number_to_bytes(sum(len(x) for x in kwargs.values()) + 1)
 
     def __str__(self):
         s = ''

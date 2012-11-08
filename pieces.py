@@ -4,6 +4,7 @@
 # Oct 22, 2012
 
 from messages import *
+from constants import REQUEST_LENGTH
 
 class Block(object):
     def __init__(self, expected_length, bytestring=''):
@@ -15,7 +16,10 @@ class Block(object):
         self.full = self.check_if_full()
 
     def check_if_full(self):
-        if len(self.bytestring) == self.expected_length:
+        #TODO: add check for block overfull and rewrite to ''; request again
+        if len(self.bytestring) > self.expected_length:
+            raise Exception('Bytestring is too long for block')
+        elif len(self.bytestring) == self.expected_length:
             return True
         else:
             return False
@@ -34,7 +38,7 @@ class Block(object):
 
 class MyPiece(object):
     def __init__(self, piece_size):
-        self.block_size = 2**14
+        self.block_size = REQUEST_LENGTH
         block_num = piece_size/self.block_size
         self.block_list = []
         for block in range(block_num):
@@ -51,10 +55,8 @@ class MyPiece(object):
         self.written = False
 
     def check_if_full(self):
-        for i in range(self.block_number):
-            if self.block_list[i].check_if_full() == False:
-                return False
-        return True
+        has_a_not_full_block = False in (block.check_if_full() for block in self.block_list)
+        return not has_a_not_full_block
 
     def write(self, block_index, bytestring):
         #block_index = piece_offset / self.block_size
