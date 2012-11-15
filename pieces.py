@@ -23,12 +23,12 @@ class Block(object):
             return True
         else:
             return False
-   
+
     def get_info(self):
         print 'length of bytestring: ' + str(len(self.bytestring))
         print 'expected_length:      ' + str(self.expected_length)
         print 'equal?                ' + str(len(self.bytestring) == self.expected_length)
-        
+
     def write(self, bytestring):
         self.bytestring = bytestring 
         self.full = self.check_if_full()
@@ -65,7 +65,7 @@ class MyPiece(object):
     def return_block(self, piece_offset):
         block_index = piece_offset / self.block_size
         return self.block_list[block_index].bytestring
-    
+
     def __repr__(self):
         to_print = ''.join(repr(block) for block in self.block_list)
         return to_print

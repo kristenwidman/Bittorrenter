@@ -3,6 +3,7 @@
 import sys
 import os
 import bencode
+import ConfigParser
 from time import time
 from bitstring import BitArray
 from hashlib import sha1
@@ -27,6 +28,7 @@ class ActiveTorrent(object):
         self.factory = BittorrentFactory(self)
         self.blocks_per_full_piece = self.torrent_info.piece_length / REQUEST_LENGTH 
         self.setup_temp_file()
+        self.done = False
 
     def bitarray_of_block_number(self):
         block_number = 0
@@ -113,11 +115,8 @@ class ActiveTorrent(object):
         #print "\nChecking for expired requests"
         now = time()
         pairs = [(k,v) for (k,v) in self.pending_timeout.iteritems()]
-        for item in pairs:             
+        for k,v in pairs:
             #if value more than x seconds before now, remove key and set pending_requests to 0 for key
-            k,v = item
-            #v = item[1]
-            #k = item[0]
             if (now - v) > PENDING_TIMEOUT:
                 #print 'pending request for block ' +str(k) +'is too old'
                 del self.pending_timeout[k]
@@ -127,13 +126,13 @@ class ActiveTorrent(object):
                 block_num_overall = self.piece_and_index_to_overall_index(block_index_in_piece, piece_num)
                 request = self.format_request(piece_num, block_bytes_in_piece) 
                 for protocol in self.factory.protocols:
-                    if protocol.interested == True and protocol.choked == False:
+                    if protocol.interested and not protocol.choked:
                         protocol.transport.write(str(request))
                         protocol.message_timeout = time()
                         self.requested_blocks[block_num_overall] = 1
                         self.pending_timeout[block_num_overall] = time()
                         #print 'request sent for expired piece'
-#should send a cancel to peer that we initially requested this from; (and send another request?)
+#TODO: should send a cancel to peer that we initially requested this from; (and send another request?)
 #how to do this?
 
     def write_piece(self, piece, piece_num):
@@ -148,9 +147,8 @@ class ActiveTorrent(object):
         #print 'Checking if complete'
         if all(self.have_blocks):
             print '\nTorrent completely downloaded!\n'
-            reactor.stop() #download complete, stop the reactor loop
             self.tempfile.close()
-            self.write_all_files()
+            self.done = True
 
     def write_all_files(self):
         #print 'writing final files'
@@ -195,10 +193,10 @@ class ActiveTorrent(object):
         print 'generating request for piece: ' + str(piece_num)+' and block: ' + str(block_byte_offset / REQUEST_LENGTH)
         request = Request(index=index_pack, begin=begin_pack, length=length_pack)
         return request 
-        
+
     def clear_data(self, piece, piece_num):
         #write piece's blocks to empty (do a debug if_full check to verify)
-        #set have and requested blocks for piect to 0
+        #set have and requested blocks for piece to 0
         print 'clear_data called because hashes did not match'
         for block_num, block in enumerate(piece.block_list):
             piece.write(block_num, '')
@@ -225,16 +223,16 @@ class ActiveTorrent(object):
     def write_block(self,block):
         block_num_in_piece = bytes_to_number(block.begin) / REQUEST_LENGTH
         piece_num = bytes_to_number(block.index)
-        piece = self.file_downloading.piece_list[piece_num]
+        mypiece = self.file_downloading.piece_list[piece_num]
         block_num_overall = self.piece_and_index_to_overall_index(block_num_in_piece, piece_num) 
-        if self.have_blocks[block_num_overall] == 0:
-            piece.write(block_num_in_piece, block.block)
+        if not self.have_blocks[block_num_overall]:
+            mypiece.write(block_num_in_piece, block.block)
             self.have_blocks[block_num_overall] = 1  #add block to have list
             print '\npiece ' + str(piece_num) +' and block '+ str(block_num_in_piece) + ' received'
         if block_num_overall in self.pending_timeout: #remove block from timeout pending dict
             del self.pending_timeout[block_num_overall]
-        if piece.check_if_full() and not piece.written:
-            self.check_hash(piece,piece_num)
+        if mypiece.check_if_full() and not mypiece.written:
+            self.check_hash(mypiece,piece_num)
 
     def determine_piece_and_block_nums(self, overall_block_num):
         piece_num, block_index_in_piece  = self.overall_index_to_piece_and_index(overall_block_num)
@@ -259,25 +257,49 @@ class ActiveTorrent(object):
                 print 'Keep Alive message sent'
                 protocol.transport.write(str(KeepAlive()))
                 protocol.message_timeout = time()
+class Check(object):
+    def __init__(self, active_torrents):
+        self.active_torrents = active_torrents
+
+    def check_for_done(self):
+        #if all torrents finished
+        if all([t.done for t in self.active_torrents]):
+            print 'All torrents finished downloading. Stopping reactor loop'
+            reactor.stop() #download complete, stop the reactor loop
+            [t.write_all_files() for t in self.active_torrents]
 
 def main():  #torrent list passed in eventually
-    writing_dir = '/Users/kristenwidman/Downloads/'
+    #writing_dir = '/Users/kristenwidman/Downloads/'
     #t = ActiveTorrent('test.torrent',writing_dir)
     #t = ActiveTorrent('Audiobook - War and Peace Book 02 by Leo tolstoy [mininova].torrent',writing_dir)
-    t = ActiveTorrent('Ebook-Alice_In_Wonderland[mininova].torrent',writing_dir)
+    #t2 = ActiveTorrent('Ebook-Alice_In_Wonderland[mininova].torrent',writing_dir)
     #t = ActiveTorrent('Ebook - Engineering Acoustics [mininova].torrent', writing_dir)
     #t = ActiveTorrent('Ebook - Human physiology [mininova].torrent', writing_dir)
-    print t.peers
-    t.connect(NUMBER_PEERS)
+    config = ConfigParser.ConfigParser()  #sending in torrent list and downloads folder through ini file
+    config.read('torrent.ini')
 
-    l_expired = task.LoopingCall(t.check_for_expired_requests)
-    l_expired.start(PENDING_TIMEOUT) #run every x seconds
-    l_send_keep_alives = task.LoopingCall(t.check_for_keep_alives)
-    l_send_keep_alives.start(KEEP_ALIVE_TIMEOUT/2)
+    #Read config file
+    writing_dir = config.get('path', 'filePath')
+    torrent_list = config.get('path', 'torrentList').split(',')
+    active_torrent_list = []
+    for torrent in torrent_list:
+        print 'torrent: ' + torrent
+        t = ActiveTorrent(torrent, writing_dir)
+        t.connect(NUMBER_PEERS)
+        print t.peers
+        active_torrent_list.append(t)
+        l_expired = task.LoopingCall(t.check_for_expired_requests)
+        l_expired.start(PENDING_TIMEOUT) #run every x seconds
+        l_send_keep_alives = task.LoopingCall(t.check_for_keep_alives)
+        l_send_keep_alives.start(KEEP_ALIVE_TIMEOUT/2)
+
+    check = Check(active_torrent_list)
+    l_check_for_done = task.LoopingCall(check.check_for_done)
+    l_check_for_done.start(20)
 
     reactor.run()
 
 if __name__ == "__main__":
-    #main(sys.argv[1])
+    #main(sys.argv[1], sys.argv[2])
     main()
 

@@ -11,8 +11,8 @@ from constants import *
 
 class BittorrentProtocol(Protocol):
     def __init__(self, factory):
-        self.factory = factory 
-        self.peer_has_pieces = BitArray(len(self.factory.active_torrent.torrent_info.pieces_array)) 
+        self.factory = factory
+        self.peer_has_pieces = BitArray(len(self.factory.active_torrent.torrent_info.pieces_array))
         self.message_buffer = bytearray()
         self.pending_requests = 0
         self.interested = False
@@ -30,7 +30,7 @@ class BittorrentProtocol(Protocol):
         peer_id = torrent_obj.peer_id
         handshake = Handshake(info_hash, peer_id)
         return handshake
-    
+
     def connectionMade(self):
         handshake_msg = str(self.handshake(self.factory.active_torrent.torrent_info))
         self.transport.write(handshake_msg)
@@ -43,7 +43,7 @@ class BittorrentProtocol(Protocol):
             if message is not None:
                 self.transport.write(str(message))
                 self.message_timeout = time()
-    
+
     def deal_with_message(self,data):
         messages_to_send_list = []
         if self.message_buffer:
@@ -69,16 +69,18 @@ class BittorrentProtocol(Protocol):
         for i in range(total_number_of_blocks):
             piece_num, block_byte_offset = self.factory.active_torrent.determine_piece_and_block_nums(i)
             if (self.peer_has_pieces[piece_num] and
-                    self.factory.active_torrent.have_blocks[i]==0 and 
+                    self.factory.active_torrent.have_blocks[i]==0 and
                     self.factory.active_torrent.requested_blocks[i]==0):
                 if self.pending_requests <= MAX_REQUESTS:
                     self.factory.active_torrent.requested_blocks[i] = 1
                     self.factory.active_torrent.pending_timeout[i] = time()
                     request = self.factory.active_torrent.format_request(piece_num, block_byte_offset)
+                    self.pending_requests += 1
                     return request
 
     def parse_messages(self, messages_to_send_list):
         message_obj = self.parse_message_from_response()
+        self.pending_requests -= 1
         if isinstance(message_obj, Choke):
             print 'Choked'
             self.choked = True
