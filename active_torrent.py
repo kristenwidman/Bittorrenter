@@ -276,7 +276,7 @@ def main():  #torrent list passed in eventually
     #t = ActiveTorrent('Ebook - Engineering Acoustics [mininova].torrent', writing_dir)
     #t = ActiveTorrent('Ebook - Human physiology [mininova].torrent', writing_dir)
     config = ConfigParser.ConfigParser()  #sending in torrent list and downloads folder through ini file
-    config.read('torrent.ini')
+    config.read('torrent_client.ini')
 
     #Read config file
     writing_dir = config.get('path', 'filePath')
