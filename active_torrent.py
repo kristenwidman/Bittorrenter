@@ -171,7 +171,7 @@ class ActiveTorrent(object):
                     i += 1
                 final_file_path = os.path.join(sub_folder, path_list[-1])
                 f_write = open(final_file_path, 'wb')
-                print 'writing file '+ final_file_path
+                #print 'writing file '+ final_file_path
                 data = f_read.read(length)
                 f_write.write(data)
                 #cleanup:
@@ -190,7 +190,7 @@ class ActiveTorrent(object):
         index_pack = pack('!l',piece_num)
         begin_pack = pack('!l', block_byte_offset)
         length_pack = pack('!l',request_len) 
-        print 'generating request for piece: ' + str(piece_num)+' and block: ' + str(block_byte_offset / REQUEST_LENGTH)
+        #print 'generating request for piece: ' + str(piece_num)+' and block: ' + str(block_byte_offset / REQUEST_LENGTH)
         request = Request(index=index_pack, begin=begin_pack, length=length_pack)
         return request 
 
@@ -212,7 +212,7 @@ class ActiveTorrent(object):
             piece_string += block.bytestring
         hash_calculated = sha1(piece_string)
         if hash_calculated.digest() == self.torrent_info.pieces_array[piece_num]:
-            print 'hashes matched, writing piece'
+            #print 'hashes matched, writing piece'
             self.write_piece(piece,piece_num)
         else:
             print 'HASHES DID NOT MATCH'
@@ -228,7 +228,7 @@ class ActiveTorrent(object):
         if not self.have_blocks[block_num_overall]:
             mypiece.write(block_num_in_piece, block.block)
             self.have_blocks[block_num_overall] = 1  #add block to have list
-            print '\npiece ' + str(piece_num) +' and block '+ str(block_num_in_piece) + ' received'
+            #print '\npiece ' + str(piece_num) +' and block '+ str(block_num_in_piece) + ' received'
         if block_num_overall in self.pending_timeout: #remove block from timeout pending dict
             del self.pending_timeout[block_num_overall]
         if mypiece.check_if_full() and not mypiece.written:
@@ -257,24 +257,15 @@ class ActiveTorrent(object):
                 print 'Keep Alive message sent'
                 protocol.transport.write(str(KeepAlive()))
                 protocol.message_timeout = time()
-class Check(object):
-    def __init__(self, active_torrents):
-        self.active_torrents = active_torrents
 
-    def check_for_done(self):
-        #if all torrents finished
-        if all([t.done for t in self.active_torrents]):
-            print 'All torrents finished downloading. Stopping reactor loop'
-            reactor.stop() #download complete, stop the reactor loop
-            [t.write_all_files() for t in self.active_torrents]
+def check_for_done(active_torrents):
+    #if all torrents finished
+    if all([t.done for t in active_torrents]):
+        print 'All torrents finished downloading. Stopping reactor loop'
+        reactor.stop() #download complete, stop the reactor loop
+        [t.write_all_files() for t in active_torrents]
 
-def main():  #torrent list passed in eventually
-    #writing_dir = '/Users/kristenwidman/Downloads/'
-    #t = ActiveTorrent('test.torrent',writing_dir)
-    #t = ActiveTorrent('Audiobook - War and Peace Book 02 by Leo tolstoy [mininova].torrent',writing_dir)
-    #t2 = ActiveTorrent('Ebook-Alice_In_Wonderland[mininova].torrent',writing_dir)
-    #t = ActiveTorrent('Ebook - Engineering Acoustics [mininova].torrent', writing_dir)
-    #t = ActiveTorrent('Ebook - Human physiology [mininova].torrent', writing_dir)
+def main():
     config = ConfigParser.ConfigParser()  #sending in torrent list and downloads folder through ini file
     config.read('torrent_client.ini')
 
@@ -293,13 +284,11 @@ def main():  #torrent list passed in eventually
         l_send_keep_alives = task.LoopingCall(t.check_for_keep_alives)
         l_send_keep_alives.start(KEEP_ALIVE_TIMEOUT/2)
 
-    check = Check(active_torrent_list)
-    l_check_for_done = task.LoopingCall(check.check_for_done)
-    l_check_for_done.start(20)
+    l_check_for_done = task.LoopingCall(check_for_done, active_torrent_list)
+    l_check_for_done.start(20)  #checks every x secondsif all torrents have finished downloading
 
     reactor.run()
 
 if __name__ == "__main__":
-    #main(sys.argv[1], sys.argv[2])
     main()
 
