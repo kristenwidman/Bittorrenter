@@ -13,17 +13,17 @@ from twisted.internet import reactor, task
 from torrent import Torrent
 from messages import *
 from pieces import *
-from bittorrenter import BittorrentFactory, BittorrentProtocol  #TODO: check if need BittorrentProtocol
+from bittorrenter import BittorrentFactory
 from constants import *
 
 class ActiveTorrent(object):
     def __init__(self, torrent_file, writing_dir):
         self.torrent_info = self.get_torrent(torrent_file)
-        self.peers = self.get_peers() 
+        self.peers = self.get_peers()
         self.file_downloading = TorrentFile(self.torrent_info.overall_length, self.torrent_info.piece_length)
         self.requested_blocks = self.bitarray_of_block_number()
         self.have_blocks = self.bitarray_of_block_number()
-        self.writing_dir = writing_dir  #check if this still needs to be an attribute
+        self.writing_dir = writing_dir
         self.pending_timeout = dict()
         self.factory = BittorrentFactory(self)
         self.blocks_per_full_piece = self.torrent_info.piece_length / REQUEST_LENGTH 
@@ -44,13 +44,13 @@ class ActiveTorrent(object):
         return torrent_info
 
     def setup_temp_file(self):
-        #TODO: check if folder_name can have an extension
-        folder_name = self.torrent_info.folder_name.rsplit('.',1)[0] #if a single file, this takes off the extension       
+        folder_name = self.torrent_info.folder_name.rsplit('.',1)[0] #if a single file, this takes off the extension
         self.folder_directory = os.path.join(self.writing_dir, folder_name)
         self.temp_file_path = os.path.join(self.folder_directory, folder_name + '.temp')
         #assumption that writing_dir exists already, since this is passed in
         try:
-            os.mkdir(self.folder_directory)  #if can't create dir, already exists and file has been partially downloaded before prob
+            os.mkdir(self.folder_directory)
+        #if can't create dir, it probably already exists and file has been partially downloaded before
         except:
             if os.path.exists(self.temp_file_path):
                 open(self.temp_file_path, 'w').close() #clears file of all contents if exists; this is for testing with files multiple times
@@ -151,7 +151,6 @@ class ActiveTorrent(object):
             self.done = True
 
     def write_all_files(self):
-        #print 'writing final files'
         info = self.torrent_info.info
         if 'files' in info:
             print 'multiple files. creating files and folders.'
@@ -166,12 +165,10 @@ class ActiveTorrent(object):
                 while i + 1 < len(path_list):  #create directory structure
                     sub_folder = os.path.join(sub_folder, path_list[i])
                     if not os.path.isdir(sub_folder): #folder does not exist yet
-                        #print 'creating new directory called: ' + path_list[i]
                         os.mkdir(sub_folder)
                     i += 1
                 final_file_path = os.path.join(sub_folder, path_list[-1])
                 f_write = open(final_file_path, 'wb')
-                #print 'writing file '+ final_file_path
                 data = f_read.read(length)
                 f_write.write(data)
                 #cleanup:
@@ -216,8 +213,6 @@ class ActiveTorrent(object):
             self.write_piece(piece,piece_num)
         else:
             print 'HASHES DID NOT MATCH'
-            print '\thash calulated: ' + repr(hash_calculated.digest())
-            print '\thash expected for piece '+str(piece_num) +' : ' + repr(self.torrent_info.pieces_array[piece_num])
             self.clear_data(piece,piece_num)
 
     def write_block(self,block):

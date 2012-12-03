@@ -1,4 +1,4 @@
-#!usr/bin/env python 
+#!usr/bin/env python
 #kristen widman
 #Oct 8, 2012
 
@@ -50,13 +50,12 @@ class BittorrentProtocol(Protocol):
             self.message_buffer.extend(bytearray(data))
         else:
             self.message_buffer = bytearray(data)
-        if self.message_buffer[1:20].lower() == "bittorrent protocol":
+        if self.message_buffer[1:20].lower() == "bittorrent protocol": #takes care of capitalization inconsistencies
             print "handshake received"
             self.decode_handshake(self.factory.active_torrent.torrent_info)
             self.message_buffer = self.message_buffer[68:]
             messages_to_send_list.append(Interested())
             self.interested = True
-            #perhaps have error handling for if handshake is cut short
         if len(self.message_buffer) >= 4:
             message_length = bytes_to_number(self.message_buffer[0:4]) + 4
             while len(self.message_buffer) >= message_length:
@@ -80,7 +79,6 @@ class BittorrentProtocol(Protocol):
 
     def parse_messages(self, messages_to_send_list):
         message_obj = self.parse_message_from_response()
-        self.pending_requests -= 1
         if isinstance(message_obj, Choke):
             print 'Choked'
             self.choked = True
@@ -107,8 +105,10 @@ class BittorrentProtocol(Protocol):
         elif isinstance(message_obj, Request):
             print 'request'
             pass  #send piece
+#TODO: implement sending pieces/serving torrents
         elif isinstance(message_obj, Piece):
-            self.factory.active_torrent.write_block(message_obj)  
+            self.pending_requests -= 1
+            self.factory.active_torrent.write_block(message_obj)
             if self.interested and not self.choked:
                 messages_to_send_list.append(self.get_next_request())
         elif isinstance(message_obj, Cancel):

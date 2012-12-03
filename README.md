@@ -24,3 +24,15 @@ www.kristenwidman.com/blog/how-to-write-a-bittorrent-client-part-1/
     you wish to download and the folder to download them to.
 4. On command-line: python active_torrent.py
 
+##Notes:##
+This client is not perfect/finished. I plan to implement more 
+functionality in the future. In particular:
+- it does not upload files to peers, only downloads
+- once peer connections are lost (due to closed connections or something
+    else), they cannot be restarted. The client can only ever use the peers
+    it starts with. The effect of this is that very large files with
+    few peers may not be downloadable wtih this client as it is currently
+    implemented.
+- no Cancel messages are currently sent when pieces requested multiple
+    times are received. No Have messages sent either since not serving
+    files.
