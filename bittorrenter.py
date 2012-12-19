@@ -3,11 +3,10 @@
 #Oct 8, 2012
 
 from time import time
-from struct import *
 from twisted.internet.protocol import Protocol, ClientFactory
-from messages import *
+import messages
 from bitstring import BitArray
-from constants import *
+import constants
 
 class BittorrentProtocol(Protocol):
     def __init__(self, factory):
@@ -19,7 +18,7 @@ class BittorrentProtocol(Protocol):
         self.peer_interested = False
         self.choked = True
         self.peer_choked = True
-        self.message_timeout = time()
+        self.message_timeout = time() #mark for sending KeepAlives
 
     def handshake(self, torrent_obj):
         '''Input: ip:port of a peer with the torrent files of interest
@@ -28,7 +27,7 @@ class BittorrentProtocol(Protocol):
         '''
         info_hash = torrent_obj.info_hash
         peer_id = torrent_obj.peer_id
-        handshake = Handshake(info_hash, peer_id)
+        handshake = messages.Handshake(info_hash, peer_id)
         return handshake
 
     def connectionMade(self):
@@ -50,17 +49,17 @@ class BittorrentProtocol(Protocol):
             self.message_buffer.extend(bytearray(data))
         else:
             self.message_buffer = bytearray(data)
-        if self.message_buffer[1:20].lower() == "bittorrent protocol": #takes care of capitalization inconsistencies
+        if self.message_buffer[1:20].lower() == "bittorrent protocol":
             print "handshake received"
             self.decode_handshake(self.factory.active_torrent.torrent_info)
             self.message_buffer = self.message_buffer[68:]
-            messages_to_send_list.append(Interested())
+            messages_to_send_list.append(messages.Interested())
             self.interested = True
         if len(self.message_buffer) >= 4:
-            message_length = bytes_to_number(self.message_buffer[0:4]) + 4
+            message_length = messages.bytes_to_number(self.message_buffer[0:4]) + 4
             while len(self.message_buffer) >= message_length:
                 messages_to_send_list = self.parse_messages(messages_to_send_list)
-                message_length = bytes_to_number(self.message_buffer[0:4])+4
+                message_length = messages.bytes_to_number(self.message_buffer[0:4])+4
         return messages_to_send_list
 
     def get_next_request(self):
@@ -70,7 +69,7 @@ class BittorrentProtocol(Protocol):
             if (self.peer_has_pieces[piece_num] and
                     self.factory.active_torrent.have_blocks[i]==0 and
                     self.factory.active_torrent.requested_blocks[i]==0):
-                if self.pending_requests <= MAX_REQUESTS:
+                if self.pending_requests <= constants.MAX_REQUESTS:
                     self.factory.active_torrent.requested_blocks[i] = 1
                     self.factory.active_torrent.pending_timeout[i] = time()
                     request = self.factory.active_torrent.format_request(piece_num, block_byte_offset)
@@ -79,47 +78,47 @@ class BittorrentProtocol(Protocol):
 
     def parse_messages(self, messages_to_send_list):
         message_obj = self.parse_message_from_response()
-        if isinstance(message_obj, Choke):
-            print 'Choked'
+        if isinstance(message_obj, messages.Choke):
+            print 'messages.Choked'
             self.choked = True
-        elif isinstance(message_obj, Unchoke):
-            print 'Unchoked!'
+        elif isinstance(message_obj, messages.Unchoke):
+            print 'messages.Unchoked!'
             self.choked = False
             if self.interested:
                 for i in range(5):
                     messages_to_send_list.append(self.get_next_request())
-        elif isinstance(message_obj, Interested):
+        elif isinstance(message_obj, messages.Interested):
             self.peer_interested = True
-        elif isinstance(message_obj, NotInterested):
+        elif isinstance(message_obj, messages.Interested):
             self.peer_interested = False
-        elif isinstance(message_obj, Have):
-            piece_index = bytes_to_number(message_obj.index)
+        elif isinstance(message_obj, messages.Have):
+            piece_index = messages.bytes_to_number(message_obj.index)
             self.peer_has_pieces[piece_index] = 1
             if self.interested and not self.choked:
                 messages_to_send_list.append(self.get_next_request())
-        elif isinstance(message_obj, Bitfield):
+        elif isinstance(message_obj, messages.Bitfield):
             bitarray = BitArray(bytes=message_obj.bitfield)
             self.peer_has_pieces = bitarray[:len(self.peer_has_pieces)]
             if self.interested and not self.choked:
                 messages_to_send_list.append(self.get_next_request())
-        elif isinstance(message_obj, Request):
+        elif isinstance(message_obj, messages.Request):
             print 'request'
             pass  #send piece
 #TODO: implement sending pieces/serving torrents
-        elif isinstance(message_obj, Piece):
+        elif isinstance(message_obj, messages.Piece):
             self.pending_requests -= 1
             self.factory.active_torrent.write_block(message_obj)
             if self.interested and not self.choked:
                 messages_to_send_list.append(self.get_next_request())
-        elif isinstance(message_obj, Cancel):
+        elif isinstance(message_obj, messages.Cancel):
             print 'cancel'
-        elif isinstance(message_obj, Port):
+        elif isinstance(message_obj, messages.Port):
             print 'port'
             #parse port and switch connection to that port
         return messages_to_send_list
 
     def decode_handshake(self, torrent_obj):
-        handshake = Handshake(self.message_buffer)
+        handshake = messages.Handshake(self.message_buffer)
         expected_info_hash = torrent_obj.info_hash
         if (expected_info_hash != handshake.info_hash):
             #TODO: instead of throwing exception, we should send a cancel message or add deffered and errback
@@ -127,22 +126,22 @@ class BittorrentProtocol(Protocol):
                             repr(expected_info_hash) + '. Info hash found: ' + repr(handshake.info_hash))
 
     def parse_message_from_response(self):
-        length = bytes_to_number(self.message_buffer[0:4]) + 4  #length indicated by the first 4 bytes + 4 for those first 4 bytes
+        length = messages.bytes_to_number(self.message_buffer[0:4]) + 4  #length indicated by the first 4 bytes + 4 for those first 4 bytes
         bytestring = self.message_buffer[:length]
         if self.message_buffer[0:4] == '\x00\x00\x00\x00':  #no msg_id
             message_obj = KeepAlive(response=bytestring)
         else:
             message_obj  = {
-              0: lambda: Choke(response=bytestring),
-              1: lambda: Unchoke(response=bytestring),
-              2: lambda: Interested(response=bytestring),
-              3: lambda: NotInterested(response=bytestring),
-              4: lambda: Have(response=bytestring),
-              5: lambda: Bitfield(response=bytestring),
-              6: lambda: Request(response=bytestring),
-              7: lambda: Piece(response=bytestring),
-              8: lambda: Cancel(response=bytestring),
-              9: lambda: Port(response=bytestring),
+              0: lambda: messages.Choke(response=bytestring),
+              1: lambda: messages.Unchoke(response=bytestring),
+              2: lambda: messages.Interested(response=bytestring),
+              3: lambda: messaged.Interested(response=bytestring),
+              4: lambda: messages.Have(response=bytestring),
+              5: lambda: messages.Bitfield(response=bytestring),
+              6: lambda: messages.Request(response=bytestring),
+              7: lambda: messages.Piece(response=bytestring),
+              8: lambda: messages.Cancel(response=bytestring),
+              9: lambda: messages.Port(response=bytestring),
             }[self.message_buffer[4]]()     #response[4] is the msg_id
         self.message_buffer = self.message_buffer[length:]
         return message_obj

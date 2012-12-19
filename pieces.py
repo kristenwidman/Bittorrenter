@@ -3,7 +3,7 @@
 # kristen widman
 # Oct 22, 2012
 
-from messages import *
+from messages import bytes_to_number
 from constants import REQUEST_LENGTH
 
 class Block(object):
